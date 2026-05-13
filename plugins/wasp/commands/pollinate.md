@@ -1,6 +1,6 @@
 ---
-description: Post-ship publishing pipeline for GitHub repos — works for npm-backed packages (publishes to npmjs.com) AND plain repos (versioning + GitHub Releases only). First run = interactive bootstrap wizard. Subsequent runs = full publish pipeline (push, tag, optional npm publish, GitHub Release, verify, backfill).
-argument-hint: "[--reinit] [--dry-run] [--skip-backfill] [--skip-npm]"
+description: Post-ship publishing pipeline for GitHub repos — works for single-package, multi-package monorepo (npm workspaces / packages/* / custom dirs), and plain repos (versioning + GitHub Releases only). Auto-detects packages, queues only those whose code changed since the last release, validates each package's publish route (registry, token, scope), waits for CI, verifies on the registry with live polling and ✅ confirmation per package, and creates + backfills GitHub Releases. First run = interactive bootstrap wizard. Subsequent runs = full pipeline.
+argument-hint: "[--reinit] [--dry-run] [--skip-backfill] [--skip-npm] [--batch-approve]"
 ---
 
 ## Current State (load before proceeding)
@@ -91,6 +91,20 @@ Check `.bee/pollinate-credentials/pollinate-credentials.md`:
 
    Store as `$AUTO_REPO_TYPE`. The user confirms or overrides at B0 (next stage). If `$AUTO_REPO_TYPE = "plain"` and no package.json exists, set `$PKG_NAME`, `$PKG_VERSION`, `$NPM_URL`, `$NPM_SCOPE` all to empty strings — Stage B will skip npm-related substeps entirely.
 
+7. **A7 — Multi-package auto-detection.** Build `$DETECTED_PACKAGES` (array of `{name, dir, version}` records). Three probes run in order; the FIRST one that yields ≥1 package wins (other probes are skipped):
+
+   - **A7.1 — npm workspaces field.** If `package.json` at repo root has a `workspaces` field, expand each glob pattern via filesystem enumeration. For each resolved directory: if `<dir>/package.json` exists, read its `name` and `version` and add `{name, dir, version}` to `$DETECTED_PACKAGES`. Example: `workspaces: ["packages/*"]` → expand to `packages/kadena-stoic-legacy`, `packages/stoa-core`, `packages/ouronet-core` (each with its own package.json).
+
+   - **A7.2 — `packages/` folder convention.** If A7.1 yielded nothing AND a `packages/` directory exists at the repo root, enumerate every immediate subdirectory that has its own `package.json`. Add each as a package record.
+
+   - **A7.3 — Single-subdir TS-port convention.** If A7.1 and A7.2 yielded nothing AND `<dir>/package.json` exists for one of these convention paths (`ts`, `js`, `src`), use that as a single-entry `$DETECTED_PACKAGES`. (DALOS_Crypto-style — Go reference at root, TS port at `ts/`.)
+
+   - **A7.4 — Repo-root fallback.** If A7.1, A7.2, A7.3 all yielded nothing AND repo-root `package.json` exists with `name + version`, use it as a single-entry `$DETECTED_PACKAGES` with `dir = "."`. (Single-package repo at root — the legacy case.)
+
+   - **A7.5 — Nothing detected.** If `$AUTO_REPO_TYPE = "plain"` with no package.json at all, `$DETECTED_PACKAGES = []` (empty). Stage B's multi-package substep will skip entirely.
+
+   Set `$IS_MULTI_PACKAGE = true` if `len($DETECTED_PACKAGES) > 1`, else `false`. This drives whether Stage B asks the multi-package confirmation question.
+
 #### Step 0.3: Stage B — Confirmation pass (user reviews + confirms each)
 
 Each substep displays the relevant context, then asks via AskUserQuestion. The flow is **deliberately conversational** — every user-action step gets explicit confirmation.
@@ -143,6 +157,127 @@ $REPO_TYPE = "multi-registry"  → $PUBLISHES_TO_NPM = true,  $GH_PACKAGES = tru
 ```
 
 `$PUBLISHES_TO_NPM` gates B7+B8+B9 (npm-token setup) and Steps 4c, 8, 9a/9b/9c/9d.
+
+##### Bm: Multi-package confirmation + per-package readiness sweep
+
+**Skip Bm entirely if `$PUBLISHES_TO_NPM` is false** (plain repos have no packages to enumerate).
+
+**Skip Bm entirely if `$DETECTED_PACKAGES` is empty** (Stage A A7.5 — no package.json detected anywhere).
+
+Otherwise, this is where the wizard pins down the per-package publish topology — the part of pollinate that turns "this repo has 3 packages" into a config the publish pipeline can act on.
+
+**Bm.1 — Display detected packages.**
+
+```
+Pollinate detected the following package(s) in this repo:
+
+  {1}  {pkg.name}                  ({pkg.dir})  version {pkg.version}
+  {2}  {pkg.name}                  ({pkg.dir})  version {pkg.version}
+  ...
+
+Detection source: {one of}
+  - "npm workspaces field in root package.json"
+  - "packages/* convention"
+  - "single-subdir convention ({ts|js|src}/)"
+  - "repo-root package.json (single-package)"
+```
+
+**Bm.2 — Ask for custom additions.**
+
+```
+AskUserQuestion(
+  question: "Are these correct? Add any custom package directories not shown?",
+  options: [
+    "Correct — use this list as-is",
+    "Add a custom package directory",
+    "Remove a detected package",
+    "Cancel"
+  ]
+)
+```
+
+If "Add": prompt for the relative path (free-text). Validate that `<path>/package.json` exists and is readable. Append to `$DETECTED_PACKAGES`. Re-loop Bm.2.
+
+If "Remove": present indexed list as a multi-select AskUserQuestion. Removed entries are dropped from `$DETECTED_PACKAGES`. Re-loop Bm.2.
+
+If "Correct": continue to Bm.3.
+
+**Bm.3 — Per-package publish-route configuration.**
+
+For EACH package in `$DETECTED_PACKAGES`, the wizard captures the publish route:
+
+```
+Package: {pkg.name}  (at {pkg.dir})
+
+  npm registry URL:        {default: https://registry.npmjs.org}
+  npm access:              {public | restricted — default detected from package.json publishConfig.access, fallback "public" for scoped names}
+  Use provenance (SLSA):   {default: true if scoped @-name, else false}
+  Auth secret (GH repo):   {default: NPMPUSHER}
+  Tag pattern:             {default: derive — single-package repos get "v{version}";
+                            multi-package monorepos get "v{version}" (uniform release model);
+                            TS-port subdir gets "ts-v{version}" if detected at ts/}
+  Release title pattern:   {default: drop tag prefix — e.g. "ts-v1.0.0" tag → "v1.0.0" Release}
+  CI workflow file:        {default: scan .github/workflows/ for the first file containing the package's tag_pattern in `on.push.tags`}
+  Changelog path:          {default: <pkg.dir>/CHANGELOG.md if exists, else CHANGELOG.md at repo root}
+  Readme path:             {default: <pkg.dir>/README.md if exists, else README.md at repo root}
+```
+
+For multi-package monorepos, the wizard offers a shortcut: "All packages share the same registry + tag pattern + workflow?" AskUserQuestion. If yes, fill defaults uniformly; if no, prompt per-package.
+
+**Bm.4 — Per-package 9-check readiness sweep.**
+
+For EACH package in `$DETECTED_PACKAGES`, before saving the config, run the 9-check validation. Display per-package progress:
+
+```
+Validating {pkg.name}...
+  [1/9] package.json sanity        ⏳
+  [2/9] registry reachability      ⏳
+  [3/9] auth secret on GitHub      ⏳
+  [4/9] PAT scope check            ⏳
+  [5/9] package name claim status  ⏳
+  [6/9] access-mismatch detection  ⏳
+  [7/9] npm publish --dry-run      ⏳
+  [8/9] workflow file exists       ⏳
+  [9/9] last-tag readability       ⏳
+```
+
+Each check updates to ✅ on pass, ❌ on fail, ⚠️ on warn. Per-check details:
+
+| # | Check | How | Outcome on failure |
+|---|---|---|---|
+| 1 | **package.json sanity** | Read `<pkg.dir>/package.json` — verify `name`, `version`, `publishConfig` are present and consistent with declared config | ❌ Halt — fix package.json then re-loop Bm |
+| 2 | **registry reachability** | `curl -sI <registry.url>` — verify endpoint responds with HTTP 200/301/302 | ❌ Halt — network or registry URL wrong |
+| 3 | **auth secret on GitHub** | `GET /repos/{owner}/{repo}/actions/secrets` via `$LOCAL_PAT`; confirm declared `auth_secret` name is listed | ❌ Halt — link to repo settings to add it |
+| 4 | **PAT scope check** | `$LOCAL_PAT` must have `repo` + `workflow` + (if publishing) `write:packages` scopes — already verified in B4, re-confirm cached result | ❌ Loop back to B2 |
+| 5 | **package name claim status** | `npm view <pkg.name> version` — if resolves: confirm scope owner matches (`npm access list collaborators <pkg.name>` → ensure current npm user has publish permission). If 404: prompt user "First publish for this package — confirm?" via AskUserQuestion | ⚠️ Confirm-only (first-publish OK) |
+| 6 | **access-mismatch detection** | Compare config `access` field vs. `package.json` `publishConfig.access` — if they disagree, halt with clear message | ❌ Halt — fix package.json |
+| 7 | **npm publish dry-run** | `cd <pkg.dir> && npm publish --dry-run` — actually runs npm's pre-flight checks (verifies files glob, tarball size, ignored files, prepublishOnly hook) without uploading | ❌ Halt — surface npm output, ask user to fix |
+| 8 | **workflow file exists** | Verify the declared `workflow` file is present at `.github/workflows/<workflow>` and on the default branch (via API GET) | ⚠️ Warn-only — user can opt to use local-publish mode |
+| 9 | **last-tag readability** | `git describe --tags --abbrev=0 --match <tag_pattern>` — needed for change-detection in Step 3. If no prior tag exists, prompt "Is this the first release for this package?" via AskUserQuestion. If yes, store `$FIRST_RELEASE[<pkg.name>] = true` for Step 3 to handle | ⚠️ Confirm-only (first-release OK) |
+
+After all 9 checks pass for every package, display:
+
+```
+✅ All packages validated:
+   {pkg1.name}    9/9 ✅
+   {pkg2.name}    9/9 ✅ (1 warning: no prior tag — first release)
+   ...
+```
+
+If any package failed: pollinate halts — the user fixes the underlying issue and re-runs `/wasp:pollinate --reinit` (or the wizard re-loops Bm).
+
+**Bm.5 — Fast-path re-validation on subsequent runs.**
+
+When pollinate's Step 0.1 detects existing `pollinate-credentials.md` with a `packages: [...]` array, it runs a LIGHTWEIGHT re-validation instead of the full 9-check sweep:
+
+- PAT still valid? (cached HTTP HEAD `/user`)
+- Each declared `auth_secret` still present on the repo?
+- Each declared `registry.url` still reachable? (curl HEAD)
+- Any NEW packages appeared in `packages/` / workspaces since last init? (rerun A7, diff against saved `$DETECTED_PACKAGES`)
+
+If all pass: fast-path through Stage 0, no prompts, proceed to Step 1.
+If any drifted: display the specific drift, then re-run the full Bm sweep for affected packages.
+If new packages detected: prompt "New package(s) found: {names}. Add to lifecycle config?" — if yes, Bm.3+Bm.4 for the new ones only.
 
 ##### B1: Confirm GitHub repo
 
@@ -532,40 +667,70 @@ If "VERSION file" and the file does not yet exist, offer to create it with an in
 
 **Build the proposed lifecycle config:**
 
+For multi-package repos (`$IS_MULTI_PACKAGE = true` OR `len($DETECTED_PACKAGES) >= 1` with explicit per-package config), the lifecycle block uses a **`packages: [...]` array**. Each entry declares one publishable artifact:
+
 ```json
 {
   "lifecycle": {
     "repo_type": "{$REPO_TYPE}",
     "publishes_to_npm": {true if npm-package or multi-registry, else false},
     "version_source": "{package_json|version_file|git_tags|manual}",
+    "version_file_path": "{path}",          // Only when version_source = "version_file"
 
-    // Only present when version_source = "version_file":
-    "version_file_path": "{path}",
+    // Multi-package: per-publishable-artifact definition (queue's source of truth)
+    "packages": [
+      {
+        "name": "@scope/pkg-name",          // npm package name (mirrors package.json)
+        "dir": "packages/pkg-name",         // path relative to repo root
+        "tag_pattern": "v{version}",        // what git tag this package's publish responds to
+        "release_title_pattern": "v{version}",
+        "workflow": "publish.yml",          // CI workflow file that handles this package's publish
+        "changelog_path": "packages/pkg-name/CHANGELOG.md",
+        "readme_path": "packages/pkg-name/README.md",
+        "registries": [
+          {
+            "kind": "npm",
+            "url": "https://registry.npmjs.org",
+            "access": "public",             // or "restricted"
+            "provenance": true,             // SLSA attestation via --provenance
+            "auth_secret": "NPMPUSHER"      // GitHub repo secret name holding the publish token
+          }
+          // Optional second target for multi-registry packages:
+          // { "kind": "github-packages", "url": "https://npm.pkg.github.com", "auth_secret": "GITHUB_TOKEN" }
+        ]
+      }
+      // ...more entries for additional packages
+    ],
 
-    // Only present when publishes_to_npm = true:
+    // Repo-level knobs (apply across all packages unless overridden per-package above):
+    "tag_message_source": "changelog",
+    "backfill_on_publish": true,
+    "wait_for_ci_seconds": 600,
+    "ci_workflow_skip": false,
+    "branch_protection": "fast-forward",
+
+    // Cross-package release model:
+    "version_model": "uniform",             // "uniform" = all queued packages bump to same tag version (v1.1.0 default)
+                                            // "independent" = each package versions independently (deferred to v1.2.0+)
+
+    // ---- LEGACY single-package fields (kept for backwards compatibility) ----
+    // If `packages` is absent AND these are present, pollinate runs in legacy
+    // single-package mode using these top-level fields:
     "npm_dir": "{$CFG.npm_dir}",
     "npm_registry": "https://registry.npmjs.org",
     "use_provenance": true,
     "github_packages_mirror": {true if multi-registry, else false},
-
-    // Always present:
     "tag_pattern": "{user-chosen, default v{version}}",
     "release_title_pattern": "{user-chosen, default same as tag_pattern}",
-    "tag_message_source": "changelog",
-    "changelog_path": "{$CFG.changelog_path}",
-    "backfill_on_publish": true,
-
-    // CI knobs — defaults shift by repo_type:
     "ci_workflow_filename": "{filename}",
-    "ci_workflow_skip": {boolean from C3 — defaults true for plain repos with no .github/workflows/* file},
-    "wait_for_ci_seconds": 600,
-
-    "branch_protection": "{from C2}"
+    "changelog_path": "{$CFG.changelog_path}"
   }
 }
 ```
 
-The npm-only fields are simply OMITTED for plain repos — pollinate's Stage A reader uses `$REPO_TYPE` as the gate, so missing fields default to safe values.
+**Schema rule:** if `packages` is an array with ≥1 entries → multi-package mode (queue-driven). Otherwise → legacy single-package mode (use the top-level `npm_dir` / `tag_pattern` etc.).
+
+For plain repos: omit `packages` entirely and use the legacy single-package fields with `repo_type: "plain"` + `publishes_to_npm: false`.
 
 For `tag_pattern` specifically, ask:
 ```
@@ -665,8 +830,26 @@ Check these guards in order. Stop immediately if any fails:
    "No git repository detected. `/wasp:pollinate` operates on git remotes."
    Do NOT proceed.
 
-3. **NO_LIFECYCLE_CONFIG guard:** Read `.bee/config.json`. If `lifecycle` block is missing OR `lifecycle.publishes_to_npm` is not `true`, tell the user:
-   "This project is not configured for npm publishing. Add a `lifecycle` block to `.bee/config.json`:
+3. **NO_LIFECYCLE_CONFIG guard:** Read `.bee/config.json`. The block is valid if EITHER:
+   - **Multi-package mode**: `lifecycle.packages` exists as an array with ≥1 entries AND `lifecycle.publishes_to_npm` is `true`, OR
+   - **Legacy single-package mode**: `lifecycle.npm_dir` is set AND `lifecycle.publishes_to_npm` is `true`, OR
+   - **Plain mode**: `lifecycle.repo_type` is `"plain"` (regardless of `publishes_to_npm`).
+
+   If none of these apply, tell the user:
+   "This project is not configured for pollinate. Add a `lifecycle` block to `.bee/config.json`. For a multi-package monorepo:
+
+   ```json
+   \"lifecycle\": {
+     \"repo_type\": \"npm-package\",
+     \"publishes_to_npm\": true,
+     \"version_model\": \"uniform\",
+     \"packages\": [
+       { \"name\": \"@scope/pkg-a\", \"dir\": \"packages/pkg-a\", \"tag_pattern\": \"v{version}\", \"workflow\": \"publish.yml\", \"registries\": [{ \"kind\": \"npm\", \"url\": \"https://registry.npmjs.org\", \"access\": \"public\", \"auth_secret\": \"NPMPUSHER\" }] }
+     ]
+   }
+   ```
+
+   For a single-package repo, the legacy shape still works:
 
    ```json
    \"lifecycle\": {
@@ -677,7 +860,7 @@ Check these guards in order. Stop immediately if any fails:
    }
    ```
 
-   See `commands/pollinate.md` for the full lifecycle config schema."
+   See `commands/pollinate.md` for the full lifecycle config schema. Or run `/wasp:pollinate --reinit` to invoke the wizard."
    Do NOT proceed.
 
 4. **CLEAN_TREE guard:** Parse the git status output. If any uncommitted changes exist, tell the user:
@@ -702,82 +885,210 @@ Check these guards in order. Stop immediately if any fails:
 
 ### Step 2: Load Lifecycle Config
 
-Read `.bee/config.json` `lifecycle` block. Resolve effective config with these defaults:
+Read `.bee/config.json` `lifecycle` block. Determine the operating mode first:
+
+- **Multi-package mode**: `lifecycle.packages` is a non-empty array → store as `$PACKAGES` (the master per-package config array).
+- **Legacy single-package mode**: `lifecycle.packages` is absent → synthesize `$PACKAGES = [{ "name": <derived from npm_dir/package.json>, "dir": <npm_dir>, "tag_pattern": <legacy>, "release_title_pattern": <legacy>, "workflow": <legacy ci_workflow_filename>, "changelog_path": <legacy>, "registries": [<derived from top-level npm_registry/use_provenance>] }]` — a one-entry array so all downstream loops still work.
+- **Plain mode** (`repo_type: "plain"`): `$PACKAGES = []`. Pollinate runs only Steps 6 (push), 7 (tag), 9b/9c (Release), 10 (backfill). No npm.
+
+Resolve repo-level defaults:
 
 | Key | Default | Purpose |
 |---|---|---|
 | `publishes_to_npm` | `true` (already gated above) | Master switch for npm steps |
-| `npm_dir` | `"."` | Directory containing `package.json` |
-| `npm_registry` | `"https://registry.npmjs.org"` | Target npm registry |
-| `tag_pattern` | `"v{version}"` | Git tag format. `{version}` is replaced with `package.json` version |
-| `release_title_pattern` | `"v{version}"` | GitHub Release display title. Can differ from `tag_pattern` (e.g. drop a `ts-` prefix) |
-| `tag_message_source` | `"changelog"` | One of `"changelog"` (extract section from CHANGELOG.md), `"manual"` (prompt user), `"both"` |
-| `changelog_path` | `"CHANGELOG.md"` | Path to CHANGELOG, relative to repo root |
-| `github_packages_mirror` | `false` | If true, also publish to `https://npm.pkg.github.com` |
-| `use_provenance` | `true` | Add `--provenance` to `npm publish` (npm 9.5+, GitHub Actions only) |
+| `version_model` | `"uniform"` | `"uniform"` = all queued packages bump to a shared tag version; `"independent"` deferred to v1.2.0+ |
+| `tag_message_source` | `"changelog"` | One of `"changelog"`, `"manual"`, `"both"` |
 | `backfill_on_publish` | `true` | Compute missing prior Releases and create them via REST |
 | `wait_for_ci_seconds` | `600` | Max wait for CI publish workflow |
-| `ci_workflow_filename` | `"publish.yml"` | Workflow file name (relative to `.github/workflows/`) |
 | `ci_workflow_skip` | `false` | If true, skip CI monitoring (for repos without CI auto-publish) |
 | `branch_protection` | `"fast-forward"` | One of `"fast-forward"` (push directly), `"pr-required"` (open PR and wait for merge) |
 
-Store these as `$CFG.<key>`. Display the resolved config to the user:
+Per-package defaults (applied if a field is missing on a package entry in `$PACKAGES`):
+
+| Key | Default |
+|---|---|
+| `tag_pattern` | `"v{version}"` |
+| `release_title_pattern` | same as `tag_pattern` with the prefix stripped (if any) |
+| `workflow` | `"publish.yml"` |
+| `changelog_path` | `<pkg.dir>/CHANGELOG.md` if exists, else `CHANGELOG.md` |
+| `readme_path` | `<pkg.dir>/README.md` if exists, else `README.md` |
+| `registries[0].kind` | `"npm"` |
+| `registries[0].url` | `"https://registry.npmjs.org"` |
+| `registries[0].access` | `"public"` (scoped) or `"restricted"` (non-scoped) |
+| `registries[0].provenance` | `true` |
+| `registries[0].auth_secret` | `"NPMPUSHER"` |
+
+Store the resolved repo-level config as `$CFG.<key>` and the per-package array as `$PACKAGES` (each entry's resolved fields available via `$PACKAGES[i].<key>`).
+
+Display the resolved config to the user:
 
 ```
 Pollinate config (effective):
-  npm_dir:               {npm_dir}
-  tag_pattern:           {tag_pattern}
-  release_title:         {release_title_pattern}
-  github_packages:       {github_packages_mirror}
-  provenance:            {use_provenance}
+  repo_type:             {$REPO_TYPE}
+  version_model:         {version_model}
+  packages:              {len($PACKAGES)} declared
+    [1] {pkg.name}        ({pkg.dir})  → tag: {pkg.tag_pattern}  workflow: {pkg.workflow}
+    [2] {pkg.name}        ({pkg.dir})  → tag: {pkg.tag_pattern}  workflow: {pkg.workflow}
+    ...
   backfill:              {backfill_on_publish}
-  CI workflow:           {ci_workflow_filename} (skip={ci_workflow_skip})
+  CI workflow skip:      {ci_workflow_skip}
   branch_protection:     {branch_protection}
+  wait_for_ci_seconds:   {wait_for_ci_seconds}
 ```
 
-### Step 3: Read Package + Compute Version
+### Step 3: Compute Publish Queue + Per-Package Versioning
 
-Version source dispatch — driven by `$CFG.lifecycle.version_source`:
+This step transforms `$PACKAGES` (every declared package) into `$QUEUE` (only the packages that need publishing in this run). The key insight: a multi-package repo doesn't republish everything every time — it republishes only what changed.
 
-| `version_source` | How `$PKG_VERSION` is computed |
-|---|---|
-| `"package_json"` (default for npm-package / multi-registry) | Read `{npm_dir}/package.json` `version` field |
-| `"version_file"` | Read `cat {version_file_path} \| tr -d '\n\r' \| xargs` |
-| `"git_tags"` | Run `git describe --tags --abbrev=0`, then strip the `tag_pattern` prefix |
-| `"manual"` | AskUserQuestion: "Version for this run?" — free-text, must match `^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$` (semver) |
+#### 3.1 — Per-package change detection
 
-1. Run the dispatch above to populate `$PKG_VERSION`.
+For EACH `pkg` in `$PACKAGES`:
 
-2. **For npm-package / multi-registry**: also read `name` from `{npm_dir}/package.json`. Store as `$PKG_NAME`. Halt if missing.
+1. **Find the most recent tag matching this package's `tag_pattern`.**
 
-   **For plain**: `$PKG_NAME` is empty (no npm package name). Computing it from `$REPO_NAME` is a fallback for display purposes only.
+   Convert the pattern's `{version}` placeholder to a glob: `tag_pattern: "v{version}"` → glob `v*`; `tag_pattern: "ts-v{version}"` → glob `ts-v*`.
 
-3. **Validation**: if `$PKG_VERSION` is empty or non-semver, halt with the source-specific diagnostic:
-   - `version_source: "package_json"` → "package.json not found at {path} or `version` field missing/invalid."
-   - `version_source: "version_file"` → "VERSION file not found at {path} or empty/invalid."
-   - `version_source: "git_tags"` → "No git tags found matching `tag_pattern`. Initial release? Pollinate cannot infer the first version — set `version_source: \"manual\"` for the first run."
-   - `version_source: "manual"` → "Version input failed semver validation: {input}."
-
-4. Compute the tag name by substituting `{version}` in `$CFG.tag_pattern`:
-   - `tag_pattern: "v{version}"` + `version: "3.1.0"` → `$TAG_NAME = "v3.1.0"`
-   - `tag_pattern: "ts-v{version}"` + `version: "3.1.0"` → `$TAG_NAME = "ts-v3.1.0"`
-
-5. Compute the Release title similarly from `$CFG.release_title_pattern`. Store as `$RELEASE_TITLE`.
-
-6. Display:
-
-   ```
-   Repo type:      {$REPO_TYPE}
-   Version source: {version_source} → {$PKG_VERSION}
-   {Package:        {$PKG_NAME}     ← only if not plain}
-   Git tag:        {$TAG_NAME}
-   Release title:  {$RELEASE_TITLE}
-   HEAD commit:    {first 8 chars of HEAD SHA} {commit subject}
+   ```bash
+   LAST_TAG=$(git describe --tags --abbrev=0 --match '<glob>' 2>/dev/null || echo "")
    ```
 
-### Step 3.5: Spec Target Reconciliation
+   If empty AND wizard's Bm.4 check 9 flagged this as a first-release, set `$pkg.first_release = true` and add to `$QUEUE` unconditionally. Otherwise: if no tag exists and this isn't a first-release, halt with "No prior tag matches `{tag_pattern}`. Run `/wasp:pollinate --reinit` to confirm first-release status."
 
-After computing `$PKG_VERSION`, cross-check it against the **active spec's** declared version target. This catches forgotten version bumps before they ship.
+2. **Diff the package directory since the last tag.**
+
+   ```bash
+   CHANGED=$(git diff --name-only "$LAST_TAG..HEAD" -- "<pkg.dir>")
+   ```
+
+   If non-empty → add `pkg` to `$QUEUE` and record `$pkg.changed_files = <list>`.
+   If empty → record `$pkg.skipped = "no code changes since $LAST_TAG"` and skip.
+
+3. **Conventional Commits scan** (for auto-bump suggestion). Scan commit subjects between `$LAST_TAG..HEAD` that touched `<pkg.dir>`:
+
+   ```bash
+   git log "$LAST_TAG..HEAD" --format='%s' -- "<pkg.dir>"
+   ```
+
+   - Any `BREAKING CHANGE:` token in subject or body → suggest MAJOR
+   - Any `feat:` or `feat(...):` prefix → suggest MINOR
+   - Any `fix:` or `fix(...):` prefix → suggest PATCH
+   - Otherwise → suggest PATCH (the safe default)
+
+   Store as `$pkg.suggested_bump`.
+
+#### 3.2 — Empty-queue halt
+
+If `$QUEUE` is empty after the scan (no package had code changes), display:
+
+```
+✓ No package code changed since last release. Nothing to publish.
+
+Per-package status:
+  {pkg1.name}    ⏸  no changes since {last_tag}
+  {pkg2.name}    ⏸  no changes since {last_tag}
+  ...
+```
+
+For `repo_type: "npm-package"` or `multi-registry`: halt the command — there's literally nothing to do.
+
+For `repo_type: "plain"`: ask via AskUserQuestion whether to push the current HEAD as a new tag anyway (some plain repos use pollinate purely as a release-ceremony tool, no code-diff required).
+
+#### 3.3 — Display queue + ask for per-package bump
+
+```
+Publish queue ({M of N} packages):
+
+  ✓ {pkg.name}        ({pkg.dir})  current: v{current_ver}  → bump: {suggested_bump}
+      Reason: {N} commit(s) since {last_tag}: {first 3 commit subjects, truncated}
+
+  ✓ {pkg.name}        ({pkg.dir})  current: v{current_ver}  → bump: {suggested_bump}
+      Reason: ...
+
+Skipped ({N-M} packages):
+  ⏸  {pkg.name}        no changes since {last_tag}
+  ⏸  {pkg.name}        no changes since {last_tag}
+```
+
+For EACH queued package, ask the bump type:
+
+```
+AskUserQuestion(
+  question: "Bump {pkg.name}: current v{current_ver}, suggested {suggested_bump}",
+  options: [
+    "PATCH (v{current_ver} → v{patched})  ← Recommended {if suggested=patch}",
+    "MINOR (v{current_ver} → v{minored})  ← Recommended {if suggested=minor}",
+    "MAJOR (v{current_ver} → v{majored})  ← Recommended {if suggested=major}",
+    "Custom version (free-text)",
+    "Cancel"
+  ]
+)
+```
+
+The "Recommended" label appears next to the suggested option only.
+
+#### 3.4 — Uniform version reconciliation
+
+With `version_model: "uniform"` (the default in v1.1.0), all queued packages must converge on a SHARED target version. The shared version is the LARGEST of the individual bumps the user picked:
+
+```
+Bumps picked:
+  {pkg.name}      v4.2.0 → v4.2.1  (PATCH)
+  {pkg.name}      v4.2.0 → v4.3.0  (MINOR)
+  {pkg.name}      v4.2.0 → v4.2.1  (PATCH)
+
+Uniform target: v4.3.0  (largest bump wins)
+
+Will bump:
+  {pkg.name}      v4.2.0 → v4.3.0  (was PATCH → bumped to MINOR to match uniform)
+  {pkg.name}      v4.2.0 → v4.3.0  (MINOR — unchanged)
+  {pkg.name}      v4.2.0 → v4.3.0  (was PATCH → bumped to MINOR to match uniform)
+```
+
+AskUserQuestion: "Apply uniform target v4.3.0 to all queued packages?" with Yes / Override / Cancel.
+
+For `version_model: "independent"` (deferred to v1.2.0+): each package keeps its picked bump independently and gets its OWN tag. Not implemented in v1.1.0 — halt with "version_model: independent is not supported in this version" if requested.
+
+#### 3.5 — Set per-package final version, tag, release title
+
+For each queued package:
+- `$pkg.next_version` = the uniform target (or independent pick for v1.2.0+)
+- `$pkg.tag_name` = `$pkg.tag_pattern` with `{version}` replaced by `$pkg.next_version`
+- `$pkg.release_title` = `$pkg.release_title_pattern` with `{version}` replaced
+
+For uniform mode: all packages share the same `next_version`, but each keeps its own `tag_name` (because tag patterns may differ — e.g. one package uses `v{version}`, another uses `ts-v{version}`). In practice, multi-package monorepos that share a workflow ALSO share a tag pattern, so this collapses to one shared tag.
+
+Compute `$SHARED_TAGS` = unique set of tag names across the queue. Typical case: one shared tag. Edge case: stoa-js + DALOS_Crypto in the same repo (hypothetical) would have two distinct tag patterns.
+
+#### 3.6 — Display the final plan
+
+```
+Publish plan:
+
+  Shared tag(s): {tag_name}  ({M packages share this tag}, {workflow_file})
+                 {alt_tag_name}  ({K packages, alt_workflow_file})
+
+  Per-package:
+    ✓ {pkg.name}    v{current}  →  v{next}     (will publish)
+    ✓ {pkg.name}    v{current}  →  v{next}     (will publish)
+    ⏸ {pkg.name}    v{current}  →  v{current}  (skipped — no changes)
+
+  Repo state: HEAD = {sha[:8]} "{commit subject}"
+```
+
+If `--batch-approve` flag is set, ask ONCE for the entire plan:
+
+```
+AskUserQuestion(
+  question: "Approve the full publish plan ({M packages → {tag_name})? Pollinate will proceed without further prompts until completion.",
+  options: ["Approve all", "Step through each", "Dry-run only (don't publish)", "Cancel"]
+)
+```
+
+Otherwise: per-step prompts continue as usual.
+
+### Step 3.5: Spec Target Reconciliation (per package)
+
+After computing per-package next versions in Step 3, cross-check against the **active spec's** declared version target. This catches forgotten version bumps before they ship.
 
 This step runs only when STATE.md has an active spec (Status NOT `NO_SPEC`). If `NO_SPEC`, skip — there's no spec to reconcile against (e.g., hotfix outside the Bee lifecycle).
 
@@ -794,65 +1105,67 @@ Use Grep on `$SPEC_PATH/requirements.md` for the version-target citation. Patter
 2. `\*\*Target version:\*\*\s+v?(\d+\.\d+\.\d+)` (alternative wording)
 3. `Version target:\s+v?(\d+\.\d+\.\d+)` (no bold)
 4. `Target version:\s+v?(\d+\.\d+\.\d+)` (no bold)
+5. **Per-package target** (multi-package case): `\*\*Version target for `(@scope/pkg)`:\*\*\s+v?(\d+\.\d+\.\d+)` — assigns target to a specific package by name.
 
-Capture the FIRST matched semver as `$SPEC_TARGET_VERSION`. If none of the patterns match, skip 3.5 silently — the spec was created without a documented version target (e.g., a manually-written spec).
+Capture matches as either `$SPEC_TARGET_VERSION` (global) or `$SPEC_TARGET_VERSIONS[pkg.name]` (per-package). If neither pattern matches, skip 3.5 silently — the spec was created without a documented version target.
 
-#### 3.5c. Compare and reconcile
+#### 3.5c. Compare and reconcile (per queued package)
 
-Compare `$PKG_VERSION` (from Step 3) against `$SPEC_TARGET_VERSION`:
+For each `pkg` in `$QUEUE`:
+
+- If `$SPEC_TARGET_VERSIONS[pkg.name]` exists, use that as the target.
+- Else if `$SPEC_TARGET_VERSION` exists (global), use that as the target (applied to all queued packages — fine for uniform mode).
+- Else skip this package's reconciliation.
+
+Compare the target against `$pkg.next_version` (just computed in Step 3.5):
 
 | Comparison | Action |
 |---|---|
-| `equal` | ✓ Display `Spec target matches package.json: {$SPEC_TARGET_VERSION}.` Continue to Step 4. |
-| `target > current` | The user forgot to bump. Offer reconciliation (3.5d). |
-| `target < current` | ⚠ ⚠ Anomaly — package.json is ahead of the spec target. May indicate the spec was already partially shipped, or the user pre-bumped manually. Display a warning + AskUserQuestion before proceeding. |
+| `equal` | ✅ Display `Spec target matches plan for {pkg.name}: v{target}.` Continue. |
+| `target > next_version` | The bump was insufficient. Offer to up the bump for this package (3.5d). |
+| `target < next_version` | ⚠️ Anomaly — the planned bump exceeds the spec target. Show both, ask user to confirm or scale back. |
 | Versions differ in non-comparable ways (pre-release tags, etc.) | Display both, ask user to confirm which to use. |
 
-Display the comparison:
+Display the comparison block for each package:
 
 ```
 Spec target reconciliation:
-  package.json:  {$PKG_VERSION}
-  Spec target:   {$SPEC_TARGET_VERSION}  (from {$SPEC_PATH}/requirements.md)
-  Comparison:    {equal | target-ahead | target-behind | non-comparable}
+  Package:        {pkg.name}
+  Planned bump:   v{current} → v{next_version}
+  Spec target:    v{spec_target}  (from {$SPEC_PATH}/requirements.md)
+  Comparison:     {equal | target-ahead | target-behind | non-comparable}
 ```
 
-#### 3.5d. Apply the bump (only if `target > current`)
+#### 3.5d. Apply the bump (only if `target > next_version`)
 
 ```
 AskUserQuestion(
-  question: "Apply version bump {$PKG_VERSION} → {$SPEC_TARGET_VERSION}?",
+  question: "Apply version bump for {pkg.name}: v{next_version} → v{spec_target}?",
   options: [
-    "Yes — add a new chore(version) commit (Recommended)",
+    "Yes — chore(version) commit for {pkg.name} (Recommended)",
     "Yes — amend the most recent commit (single-commit-per-release)",
     "Override version manually",
-    "Skip the bump (use current package.json version)"
+    "Skip — use v{next_version} as planned"
   ]
 )
 ```
 
 ##### Option 1: chore(version) commit (Recommended)
 
-Edit `$CFG.npm_dir/package.json` (or `$CFG.version_file_path` if `version_source = "version_file"`) to set `version` to `$SPEC_TARGET_VERSION`:
+Edit `<pkg.dir>/package.json` (or `<version_file_path>` if `version_source = "version_file"`) to set `version` to `$spec_target`:
 
 ```bash
 # For package.json:
-node -e "const p=require('./{$CFG.npm_dir}/package.json'); p.version='{$SPEC_TARGET_VERSION}'; require('fs').writeFileSync('./{$CFG.npm_dir}/package.json', JSON.stringify(p, null, 2)+'\n');"
+node -e "const p=require('./<pkg.dir>/package.json'); p.version='<spec_target>'; require('fs').writeFileSync('./<pkg.dir>/package.json', JSON.stringify(p, null, 2)+'\n');"
 ```
 
-(For `version_file`: `echo "{$SPEC_TARGET_VERSION}" > {$CFG.version_file_path}`.)
+If `<pkg.dir>/package-lock.json` exists, also bump it: `cd <pkg.dir> && npm install --package-lock-only --silent`.
 
-If `package-lock.json` exists in the same directory, also bump it:
-
-```bash
-cd {$CFG.npm_dir} && npm install --package-lock-only --silent  # regenerates lock file with new version
-```
-
-Stage + commit:
+Stage + commit (one commit per package being reconciled, or batch into one if multiple packages):
 
 ```bash
-git -C {$CFG.npm_dir} add package.json package-lock.json 2>/dev/null
-git commit -m "chore(version): bump to {$SPEC_TARGET_VERSION}
+git add <pkg.dir>/package.json <pkg.dir>/package-lock.json 2>/dev/null
+git commit -m "chore(version): bump {pkg.name} to {spec_target}
 
 Aligned package.json with spec target documented in
 {$SPEC_PATH}/requirements.md.
@@ -861,12 +1174,7 @@ Co-Authored-By: Claude (via /wasp:pollinate Step 3.5)
 "
 ```
 
-Use the same git author env vars as the most recent commit (so the new commit's author/committer matches). Read these via:
-- `GIT_AUTHOR_NAME = git log -1 --format='%an'`
-- `GIT_AUTHOR_EMAIL = git log -1 --format='%ae'`
-- (and `GIT_COMMITTER_NAME` / `GIT_COMMITTER_EMAIL` similarly)
-
-After commit, set `$PKG_VERSION = $SPEC_TARGET_VERSION` and recompute `$TAG_NAME` and `$RELEASE_TITLE` from the new value. Re-display the Step 3 summary block with the updated values.
+Use the same git author env vars as the most recent commit. After commit, set `$pkg.next_version = $spec_target` and recompute `$pkg.tag_name` and `$pkg.release_title`. Re-display the Step 3 summary block.
 
 ##### Option 2: amend the most recent commit
 
@@ -889,146 +1197,135 @@ If already pushed, refuse with a warning + suggest Option 1 instead. (Force-push
 If safe to amend, edit package.json + lock file, then:
 
 ```bash
-git -C {$CFG.npm_dir} add package.json package-lock.json 2>/dev/null
+git add <pkg.dir>/package.json <pkg.dir>/package-lock.json 2>/dev/null
 git commit --amend --no-edit
 ```
 
-`--no-edit` preserves the original commit message + author. The version-bump becomes part of the spec's commit, single commit per release.
+`--no-edit` preserves the original commit message + author.
 
 ##### Option 3: Override manually
 
-```
-AskUserQuestion(
-  question: "What version to use? (semver only)",
-  type: free-text
-)
-```
-
-Validate the input is semver. Use as `$PKG_VERSION` going forward (no commit changes — user takes responsibility).
+AskUserQuestion: "What version to use? (semver only)". Validate the input is semver. Use as `$pkg.next_version` going forward (no commit changes — user takes responsibility).
 
 ##### Option 4: Skip
 
-Keep `$PKG_VERSION` as the current package.json value. Note in `$WARNINGS` for the final report: "Spec target {$SPEC_TARGET_VERSION} not applied — published as {$PKG_VERSION}."
+Keep `$pkg.next_version` as the planned value. Note in `$WARNINGS` for the final report: "Spec target v{spec_target} not applied to {pkg.name} — published as v{next_version}."
 
 #### 3.5e. Post-reconciliation summary
 
-After the chosen action, display the final state:
+After processing every queued package, display the final state:
 
 ```
 ✓ Spec target reconciliation complete:
-  Final $PKG_VERSION:  {value}
-  Action taken:         {chore-commit | amended | manual-override | skipped}
-  {if commit added: Commit added: {short SHA} chore(version): bump to X.Y.Z}
+  Reconciled:   {N} package(s) bumped to spec target
+  Unchanged:    {M} package(s) — plan already matched spec
+  Skipped:      {K} package(s) — user override
+  Commits added: {list of short SHAs if Option 1 used}
 ```
 
-### Step 4: Pre-publish Documentation Gates
+### Step 4: Pre-publish Documentation Gates (per queued package)
 
-Check that the documentation surfaces are consistent with the version about to be published. For each gate, if it fails, surface the issue and ask the user how to handle.
+For EACH `pkg` in `$QUEUE`, run gates 4a–4c. If any fail, surface the issue and ask the user how to handle. If `--batch-approve` is set, gather all gate failures across all packages and present one consolidated decision per failure-class.
 
-#### 4a. CHANGELOG entry exists
+#### 4a. CHANGELOG entry exists (per package)
 
-Use Grep to look for `^## \[{$PKG_VERSION}\]` in `$CFG.changelog_path`. If no match:
+For each `pkg`: Grep for `^## \[{pkg.next_version}\]` in `pkg.changelog_path`. If no match:
 
+```
 AskUserQuestion(
-  question: "No CHANGELOG.md entry for {$PKG_VERSION}. Halt and write one first?",
+  question: "{pkg.name}: no CHANGELOG entry for v{pkg.next_version}. Halt and write one first?",
   options: ["Halt — I'll add the entry", "Pollinate without CHANGELOG entry", "Custom"]
 )
-
-If "Halt", display the path and stop. If "Pollinate without", note in `$WARNINGS` and continue (the tag annotation will be a generic auto-generated body).
-
-#### 4b. Version match: package.json ↔ root README badge (if applicable)
-
-If a root `README.md` exists, grep for version badges (typical patterns: `Version-{x.y.z}`, `version: {x.y.z}`). Report any badge that is NOT at `$PKG_VERSION`:
-
-```
-Version-mismatch warning:
-  README.md:5  badge shows v{stale_version}, package.json is v{$PKG_VERSION}
 ```
 
-AskUserQuestion(
-  question: "Version badges out of date. Update before pollinating?",
-  options: ["Update via Edit then continue", "Pollinate as-is", "Cancel", "Custom"]
-)
+If "Halt", display the path and stop. If "Pollinate without", note in `$WARNINGS` and continue (the tag annotation falls back to git-log).
 
-If "Update via Edit", offer specific Edits to the user, apply them, re-amend the commit (if it was the most recent and the tree still clean), and re-verify before proceeding. NEVER force-push to update — instead, recommend an additional commit.
+#### 4b. README version match (per package)
 
-If "Pollinate as-is", note in `$WARNINGS` and continue.
-
-#### 4c. npm-tarball README exists (if `npm_dir` ≠ `.`)
-
-**Skip this gate entirely if `$PUBLISHES_TO_NPM` is false** (plain repo). For plain repos, `npm_dir` is irrelevant — there's no npm tarball.
-
-Otherwise:
-
-If `$CFG.npm_dir` is not `.`, check `{npm_dir}/README.md` exists. If missing, warn:
+For each `pkg`: if `pkg.readme_path` exists, grep for version badges and "## Status" version references (patterns: `Version-{x.y.z}`, `version: {x.y.z}`, `\`{x.y.z}\` on public npmjs`). Report any reference NOT at `pkg.next_version`:
 
 ```
-{$CFG.npm_dir}/README.md is missing. The published npm package will have no README.
-Consumers landing on npmjs.com will see a default placeholder.
+{pkg.name}: README version-mismatch:
+  {pkg.readme_path}:5   badge shows v{stale}, target is v{next_version}
 ```
 
-AskUserQuestion(
-  question: "Pollinate without npm-tarball README?",
-  options: ["Pollinate as-is (Not recommended)", "Halt — I'll add a README", "Custom"]
-)
+AskUserQuestion: Update via Edit / Pollinate as-is / Cancel. If Update: apply Edits, add a follow-up commit (NEVER force-push).
 
-#### 4d. Display gate summary
+#### 4c. npm-tarball README (per package, npm-only)
 
-If all gates pass: `"Documentation gates: PASS"`.
-Otherwise: list each warning with the user's resolution decision.
+**Skip this gate entirely if `$PUBLISHES_TO_NPM` is false** (plain repo).
 
-### Step 5: Tag Annotation Body
+For each `pkg` with `pkg.dir ≠ "."`: check `<pkg.dir>/README.md` exists. If missing, warn — the published npm tarball will land on npmjs.com with no README. AskUserQuestion: Pollinate without / Halt and add / Custom.
 
-Assemble the annotated-tag body (which becomes the GitHub Release body).
+#### 4d. Per-package gate summary
+
+```
+Documentation gates:
+  ✅ {pkg.name}    CHANGELOG ✓  README ✓  npm-tarball-README ✓
+  ⚠️ {pkg.name}    CHANGELOG ✓  README v-mismatch (user chose "as-is")  npm-tarball-README ✓
+  ❌ {pkg.name}    CHANGELOG missing — halted
+
+Overall: {PASS | PASS-with-warnings | HALTED}
+```
+
+If HALTED for any package, stop the command.
+
+### Step 5: Tag Annotation Body (per shared tag)
+
+Assemble the annotated-tag body. With `version_model: "uniform"` and a multi-package monorepo, multiple queued packages share ONE tag — so the tag body summarises ALL queued packages.
 
 Per `$CFG.tag_message_source`:
 
 #### `"changelog"` (default)
 
-Extract the CHANGELOG section for `$PKG_VERSION` using sed:
+For each queued package, extract its CHANGELOG section for `pkg.next_version`:
 
 ```bash
-sed -n "/^## \[${PKG_VERSION}\]/,/^## \[/{/^## \[/!p; /^## \[${PKG_VERSION}\]/p}" {changelog_path} | sed '$d'
+sed -n "/^## \[${pkg.next_version}\]/,/^## \[/{/^## \[/!p; /^## \[${pkg.next_version}\]/p}" {pkg.changelog_path} | sed '$d'
 ```
 
-Save the section to `/tmp/pollinate-{$PKG_VERSION}-body.md`. If the section is empty (CHANGELOG entry was just `## [{version}]` with no body), fall through to `"manual"`.
+Assemble the tag body as:
+
+```markdown
+# Release {shared_tag_name}
+
+This release ships the following packages:
+
+## {pkg1.name}@{pkg1.next_version}
+
+{pkg1 CHANGELOG section}
+
+## {pkg2.name}@{pkg2.next_version}
+
+{pkg2 CHANGELOG section}
+
+(...one section per queued package...)
+
+---
+
+Packages NOT published in this release (no code changes since last tag): {pkg3.name}, {pkg4.name}, ...
+```
+
+Save to `/tmp/pollinate-{shared_tag_name}-body.md`. For single-package mode, the body simplifies to just one package's CHANGELOG section (no "release ships" header).
 
 #### `"manual"`
 
-AskUserQuestion(
-  question: "Tag annotation body? (Becomes the GitHub Release body)",
-  options: ["Auto-generate from package.json + git log", "Open editor — let me write it", "Custom"]
-)
-
-If "Auto-generate", write a minimal body:
-
-```
-{$PKG_NAME}@{$PKG_VERSION}
-
-Commits since previous tag:
-{git log --oneline {previous_tag}..HEAD}
-```
+AskUserQuestion: Auto-generate from git log / Open editor / Custom. The auto-generated body lists each queued package with git-log-since-last-tag for `<pkg.dir>`.
 
 #### `"both"`
 
-CHANGELOG section + a "## Commits since previous tag" appendix.
+Each package's CHANGELOG section + a "## Commits since previous tag (for {pkg.name})" appendix per package.
 
-#### Display the body before tagging:
+#### Display the body before tagging
 
 ```
-Tag annotation body ({lines} lines, {bytes} bytes):
-{first 20 lines, truncated with "..." if longer}
+Tag annotation body for {shared_tag_name}  ({lines} lines, {bytes} bytes):
+{first 30 lines, truncated with "..." if longer}
 
-[Full body saved at /tmp/pollinate-{$PKG_VERSION}-body.md]
+[Full body saved at /tmp/pollinate-{shared_tag_name}-body.md]
 ```
 
-AskUserQuestion(
-  question: "Use this annotation body?",
-  options: ["Yes, proceed", "Edit it", "Cancel", "Custom"]
-)
-
-If "Edit it", offer to open the file via the Edit tool and re-display.
-If "Cancel", display "Pollinate cancelled." and stop.
+AskUserQuestion: Yes proceed / Edit it / Cancel. (Skipped if `--batch-approve` is set and the user already accepted the full plan.)
 
 ### Step 6: Push to origin/main
 
@@ -1069,204 +1366,312 @@ Pushed:
   main:           {HEAD_SHA[:8]} → origin/main (fast-forward)
 ```
 
-### Step 7: Create + Push Annotated Tag
+### Step 7: Create + Push Annotated Tag(s)
 
-1. Check tag idempotency: `git rev-parse {$TAG_NAME}` (locally) and `git ls-remote --tags origin {$TAG_NAME}`.
-   - If tag exists locally AND points at `$HEAD_COMMIT`: skip creation, proceed to push.
-   - If tag exists locally AND points at a DIFFERENT commit: halt with "Tag {$TAG_NAME} already exists at {old_commit}, but HEAD is {new_commit}. Resolve manually."
-   - If tag exists on origin BUT not locally: fetch it (`git fetch origin tag {$TAG_NAME}`) and re-check.
-   - If tag does not exist anywhere: create it now.
+For each tag in `$SHARED_TAGS` (typically just one for uniform-version multi-package; multiple if different packages use different tag patterns):
 
-2. Create the annotated tag, sourcing the body from `/tmp/pollinate-{$PKG_VERSION}-body.md`:
+1. **Tag idempotency check.** `git rev-parse {tag_name}` (locally) and `git ls-remote --tags origin {tag_name}`.
+   - If exists locally AND points at `$HEAD_COMMIT`: skip creation, proceed to push.
+   - If exists locally AND points at a DIFFERENT commit: halt with diagnostic.
+   - If exists on origin BUT not locally: fetch it and re-check.
+   - If does not exist anywhere: create it now.
+
+2. **Create the annotated tag** sourcing the body from `/tmp/pollinate-{tag_name}-body.md`:
 
    ```bash
-   git tag -a {$TAG_NAME} {$HEAD_COMMIT} -F /tmp/pollinate-{$PKG_VERSION}-body.md
+   git tag -a {tag_name} {$HEAD_COMMIT} -F /tmp/pollinate-{tag_name}-body.md
    ```
 
-   Use the same git author env vars as the most recent commit (so the tagger matches the committer). Read these via:
-   - `GIT_AUTHOR_NAME = git log -1 --format='%an'`
-   - `GIT_AUTHOR_EMAIL = git log -1 --format='%ae'`
-   - `GIT_COMMITTER_NAME` and `GIT_COMMITTER_EMAIL` similarly
+   Use the same git author env vars as the most recent commit.
 
-3. Push the tag: `git push origin {$TAG_NAME}`.
+3. **Push the tag**: `git push origin {tag_name}`.
 
-4. Display:
+4. Display per tag:
 
    ```
-   Tag created and pushed: {$TAG_NAME} → {$HEAD_COMMIT[:8]}
+   ✅ Tag created and pushed: {tag_name} → {$HEAD_COMMIT[:8]}
+       Packages riding this tag: {pkg1.name}, {pkg2.name}, ...
    ```
 
-### Step 8: Wait for CI Publish Workflow
+### Step 8: Wait for CI Publish Workflow (per workflow)
 
 Skip this step if `$CFG.ci_workflow_skip` is `true` — proceed directly to Step 9.
 
-**Common case for plain repos:** `ci_workflow_skip` defaults to `true`. Pollinate skips this entire step and proceeds to Step 9 (which for plain repos creates only the GitHub Release). If the plain repo does have a CI workflow that runs on tag (e.g. for tests, docs build), it can still be monitored by setting `ci_workflow_skip: false` and pointing `ci_workflow_filename` at the right file.
+**Common case for plain repos:** `ci_workflow_skip` defaults to `true`. Pollinate skips this entire step.
 
-The tag push triggers `.github/workflows/{$CFG.ci_workflow_filename}`. Monitor it:
+For multi-package mode, the queued packages may share a workflow (one workflow runs per tag, smart-detects which packages to publish — stoa-js style) OR have different workflows (each gets its own workflow run — rare but supported). Group `$QUEUE` by `pkg.workflow` field to compute `$WORKFLOW_RUNS` (one entry per unique `(workflow_file, tag_name)` pair).
 
-1. Poll the GitHub API for workflow runs filtered by tag name. Identify the run triggered by this push (matches `head_sha = $HEAD_COMMIT` AND `head_branch = $TAG_NAME`).
+For EACH `(workflow, tag)` in `$WORKFLOW_RUNS`:
 
-2. Poll status every 15 seconds, up to `$CFG.wait_for_ci_seconds`. Display progress:
+#### 8.1 — Identify the workflow run
 
-   ```
-   CI publish workflow: in_progress (15s elapsed, max {$CFG.wait_for_ci_seconds}s)
-   ```
+Poll `GET /repos/{owner}/{repo}/actions/runs?event=push&head_sha={$HEAD_COMMIT}` up to 30 seconds, looking for a run where:
+- `path` (workflow file) matches `.github/workflows/<workflow>`
+- `head_branch` equals `<tag_name>`
 
-3. On completion, parse the per-step status:
-   - If `conclusion == "success"`: continue to Step 9 with celebration.
-   - If `conclusion == "failure"`: fetch the failed step name and the last 100 lines of its log via the GitHub API. Classify the failure:
+Once found, record `$run_id`.
+
+#### 8.2 — Poll workflow completion with live progress
+
+Poll every 15 seconds, up to `$CFG.wait_for_ci_seconds`. Display live-updating progress:
+
+```
+🐝 Publishing wave 1/{$WORKFLOW_RUNS_count}: {workflow} for tag {tag_name}
+   Packages riding this tag: {pkg1.name}, {pkg2.name}, ...
+
+   ⏳ workflow run #{run_number}  status: in_progress  ({elapsed}s elapsed, max {max}s)
+```
+
+On each poll, re-fetch the run's `status` and `conclusion`. When `status: completed`:
+- `conclusion: success` → ✅, continue to 8.3
+- `conclusion: failure` → ❌, classify via the failure table below
+- `conclusion: cancelled` → ⚠️, ask user whether to retry or abort
+
+#### 8.3 — Per-package result extraction (smart workflow case)
+
+For shared-workflow setups (stoa-js's `publish.yml` runs one job that conditionally publishes each package), the workflow run has per-step output. Pollinate fetches the job log via `GET /repos/.../actions/runs/{run_id}/logs` and greps for per-package indicators:
+
+- `"@scope/pkg@x.y.z already on npm — skipping (idempotent)"` → mark `$pkg.cic_status = "skipped-already-published"`
+- `"npm publish --workspace=@scope/pkg --access public --provenance"` followed by success → `$pkg.ci_status = "published"`
+- Per-package job step failure → `$pkg.ci_status = "failed"` + capture log lines
+
+Display per-package result:
+
+```
+   Workflow completed: ✅ success ({duration}s)
+   Per-package outcome:
+     ✅ {pkg1.name}@{pkg1.next_version}  published
+     ✅ {pkg2.name}@{pkg2.next_version}  published
+     ⏭️ {pkg3.name}@{pkg3.next_version}  skipped (already on npm — idempotent)
+```
+
+For workflows that don't expose per-package detail in logs, treat workflow success as success-for-all-queued-packages and rely on Step 9's npm-registry verification to confirm each.
 
 #### Failure classification
 
-| Failed step | Likely cause | Recovery |
+| Failed step pattern | Likely cause | Recovery |
 |---|---|---|
-| `Lint` / `Typecheck` / `Test` / `Build` | Real bug in code | Halt. Display log excerpt. User must fix and re-tag (likely needs a new patch version). |
-| `Verify {package_name} version matches tag` | Tag/package mismatch | Halt. Reconcile and re-tag. |
+| `Lint` / `Typecheck` / `Test` / `Build` | Real bug | Halt. Display log excerpt. User fixes + re-tags (new patch). |
+| `Verify {package_name} version matches tag` | Tag/package version mismatch | Halt. Reconcile and re-tag. |
 | `Verify {NPMPUSHER|GH_TOKEN} secret is configured` | Repo missing secret | Halt with link to repo settings. |
-| `Publish to npmjs.org` | npm 2FA / scope permission / network | Halt. Display log. May need npm token rotation. |
-| `Create GitHub Release for the pushed tag` | Known gh CLI flag bug (see below) | **Auto-fallback to REST API** (see Step 9c). |
-| `Backfill GitHub Releases for prior tags (idempotent)` | Same gh CLI flag bug, or stale backfill list | Continue (npm publish already succeeded); flag for follow-up. |
+| `Publish to npmjs.org` | npm 2FA / scope permission / network | Halt. Display log. May need npm token rotation or scope permission fix. |
+| `Create GitHub Release for the pushed tag` | Known gh CLI flag bug (see below) | **Auto-fallback to REST API** (Step 9c). |
+| `Backfill GitHub Releases for prior tags` | Same gh CLI flag bug, or stale backfill list | Continue (npm publish already succeeded); flag for follow-up. |
 | Anything else | Unknown | Halt. Display log. Ask user. |
 
 #### Known gh CLI flag bug (auto-handled)
 
-The flag combination `gh release create --notes-from-tag --repo X` stopped being supported on GitHub-hosted runners around 2026-04-30 (gh CLI image update). When this exact failure mode is detected ("using `--notes-from-tag` with `--repo` is not supported"), pollinate continues to Step 9 — the npm publish has already succeeded by this point in the workflow, and Step 9c will create the GitHub Release manually via REST API.
+The flag combination `gh release create --notes-from-tag --repo X` stopped being supported on GitHub-hosted runners around 2026-04-30 (gh CLI image update). When this exact failure mode is detected ("using `--notes-from-tag` with `--repo` is not supported"), pollinate continues to Step 9 — npm publish has already succeeded by this point, and Step 9c will create the GitHub Release manually via REST API.
 
-### Step 9: Verify + Create Artifacts
+#### 8.4 — All workflows complete
 
-#### 9a. Verify npm registry
-
-**Skip 9a entirely if `$PUBLISHES_TO_NPM` is false** (plain repo). Plain repos have no npm artifact to verify — skip directly to 9b (GitHub Release verification).
-
-Otherwise:
-
-GET `{$CFG.npm_registry}/{$PKG_NAME}/{$PKG_VERSION}`. Expect HTTP 200 with the package metadata.
-
-If 404, the npm publish never landed — halt with diagnostic.
-
-If 200 but `version` mismatches: halt with diagnostic (registry caching issue).
-
-If 200 and matches: also fetch `{$CFG.npm_registry}/{$PKG_NAME}` and check `dist-tags.latest`. If `latest` is not `$PKG_VERSION`, ask:
-
-AskUserQuestion(
-  question: "{$PKG_NAME}@latest is {actual}, expected {$PKG_VERSION}. Did you intend to publish a non-latest (e.g. patch on old major)?",
-  options: ["Yes, intended", "No — should be latest", "Custom"]
-)
-
-If "No", explain that `npm publish` requires `--tag latest` to override; the user can `npm dist-tag add {$PKG_NAME}@{$PKG_VERSION} latest` manually.
-
-If `$CFG.use_provenance` is true: GET `{$CFG.npm_registry}/-/npm/v1/attestations/{$PKG_NAME}@{$PKG_VERSION}`. Expect 200. If 404, warn that provenance attestation is missing (npm publish step may have lacked `--provenance` or missing `id-token: write` permission).
-
-Display:
+After every `(workflow, tag)` in `$WORKFLOW_RUNS` has completed, display the wave summary:
 
 ```
-npm registry: ✓ {$PKG_NAME}@{$PKG_VERSION} live (latest, provenance: present)
-              {npm package URL}
+✅ CI publishing complete:
+   {workflow1} for {tag1}  → {duration}s  ({M} packages published, {K} skipped-idempotent)
+   {workflow2} for {tag2}  → {duration}s  ({...})
+
+Proceeding to Step 9 (registry verification)...
 ```
 
-#### 9b. Verify GitHub Release exists
+### Step 9: Verify + Create Artifacts (per queued package, with live ✅ polling)
 
-GET `https://api.github.com/repos/{owner}/{repo}/releases/tags/{$TAG_NAME}`.
+#### 9a. Verify npm registry (per package, serial)
 
-If 200: the workflow's gh-release step succeeded (lucky!). Skip 9c.
-If 404: proceed to 9c.
+**Skip 9a entirely if `$PUBLISHES_TO_NPM` is false** (plain repo).
 
-#### 9c. Create GitHub Release via REST API (fallback)
+This is the core "is it really live?" gate. For multi-package mode, packages are verified **SERIALLY** — one at a time, with each result rendered as ✅/❌/⏳ in the conversation before moving to the next. This matters because downstream packages may peer-dep on upstream, and we need each upstream confirmed live before bumping any downstream pin.
 
-POST to `https://api.github.com/repos/{owner}/{repo}/releases` with:
+For EACH `pkg` in `$QUEUE` (in dependency order if known, else original `$QUEUE` order):
+
+Display a per-package progress block that updates as gates pass:
+
+```
+[{i}/{N}] {pkg.name}@{pkg.next_version}
+   ⏳ tag pushed (origin/{tag_name})
+   ⏳ workflow completed green
+   ⏳ npm registry live
+   ⏳ npm dist-tag = latest
+   ⏳ provenance attestation present
+   ⏳ GitHub Release created
+```
+
+Run each gate sequentially, updating the ⏳ to ✅ on pass or ❌ on fail:
+
+1. **Tag pushed.** Already done in Step 7; mark ✅ from cached state.
+
+2. **Workflow completed green.** Already verified in Step 8; mark ✅ from cached state (or ❌ if we somehow got here past a workflow failure).
+
+3. **npm registry live.** Poll `GET <pkg.registries[0].url>/<pkg.name>/<pkg.next_version>` with exponential backoff (1s, 2s, 4s, 8s, 16s, 32s, 60s, 60s, ...). Total budget: 5 minutes (npm propagation can be slow).
+   - HTTP 200 with `version: <pkg.next_version>` → ✅
+   - HTTP 404 after timeout → ❌ "Package never landed on registry — halt"
+   - HTTP 200 but `version` mismatch → ❌ "Registry caching anomaly — halt"
+
+4. **npm dist-tag = latest.** GET `<pkg.registries[0].url>/<pkg.name>`, parse `dist-tags.latest`. Compare to `<pkg.next_version>`.
+   - Equal → ✅
+   - Different → ⚠️ Ask user: "{pkg.name}@latest is {actual}, expected {next_version}. Intended (e.g. patch on old major)?" If "No": offer `npm dist-tag add` command.
+
+5. **Provenance attestation present** (only if `pkg.registries[0].provenance` is true). GET `<pkg.registries[0].url>/-/npm/v1/attestations/<pkg.name>@<pkg.next_version>`. Expect 200.
+   - 200 → ✅
+   - 404 → ⚠️ Note for follow-ups: "{pkg.name} missing provenance — npm publish step may have lacked --provenance or id-token: write permission."
+
+6. **GitHub Release created.** Deferred to 9b (one Release per shared tag, not per package — handled below).
+
+Once all gates pass for `pkg`, finalize its block:
+
+```
+[{i}/{N}] {pkg.name}@{pkg.next_version}
+   ✅ tag pushed (origin/{tag_name})
+   ✅ workflow completed green
+   ✅ npm registry live
+   ✅ npm dist-tag = latest
+   ✅ provenance attestation present
+   ✅ DONE — proceeding to next package
+
+   🔗 https://www.npmjs.com/package/{pkg.name}/v/{pkg.next_version}
+```
+
+Then move to `[{i+1}/{N}]`.
+
+If a package fails any gate, halt the entire run and display:
+
+```
+[{i}/{N}] {pkg.name}@{pkg.next_version}
+   ✅ tag pushed
+   ✅ workflow completed green
+   ❌ npm registry live  — HTTP 404 after 5 min, package never landed
+
+Aborting Step 9. Remaining {N-i} packages NOT verified.
+Manual diagnosis required (check the workflow logs and npm publish step).
+```
+
+Resume after fix: pollinate is idempotent — re-running picks up from the failed package.
+
+#### 9b. Verify GitHub Release exists (per shared tag)
+
+For each unique tag in `$SHARED_TAGS` (the set computed in Step 3.6):
+
+GET `https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag_name}`.
+
+- 200 → ✅ workflow's gh-release step succeeded. Skip 9c for this tag.
+- 404 → ⚠️ Release missing — proceed to 9c (REST API fallback).
+
+#### 9c. Create GitHub Release via REST API (fallback, per missing tag)
+
+For each tag in `$SHARED_TAGS` that 9b found missing, POST to `https://api.github.com/repos/{owner}/{repo}/releases`:
 
 ```json
 {
-  "tag_name": "{$TAG_NAME}",
-  "name": "{$RELEASE_TITLE}",
-  "body": "{contents of /tmp/pollinate-{$PKG_VERSION}-body.md}",
+  "tag_name": "{tag_name}",
+  "name": "{release_title}",
+  "body": "{contents of /tmp/pollinate-{tag_name}-body.md}",
   "draft": false,
   "prerelease": false,
   "make_latest": "true"
 }
 ```
 
-Use `GH_TOKEN` from `$GITHUB_TOKEN` env var, `~/.github_token` file, or one of `$GITHUB_PERSONAL_TOKEN`, the project's own `.secrets/` directory (read but never log). If no token available, halt with link to https://github.com/settings/tokens.
+Use `GH_TOKEN` from `$GITHUB_TOKEN` env var, `.secrets/PAT.txt`, or `~/.github_token` (read but never log). If no token available, halt with link to https://github.com/settings/tokens.
 
-Note for Windows + PowerShell users: the JSON body must be encoded with explicit `[string]` cast and UTF-8 no-BOM file write to avoid PSObject-as-payload bugs. See `commands/pollinate.md` "PowerShell encoding" appendix below.
+Note for Windows + PowerShell users: the JSON body must be encoded with explicit `[string]` cast and UTF-8 no-BOM file write to avoid PSObject-as-payload bugs. See "PowerShell encoding" appendix below.
 
-#### 9d. (Optional) Mirror to GitHub Packages
+Display per Release:
 
-Skip if `$CFG.github_packages_mirror` is `false` (the default for `$REPO_TYPE = "npm-package"` and always for `$REPO_TYPE = "plain"`).
+```
+✅ GitHub Release created: {release_title}
+   🔗 https://github.com/{owner}/{repo}/releases/tag/{tag_name}
+```
 
-For `$REPO_TYPE = "multi-registry"` this step always runs.
+#### 9d. (Optional) Mirror to GitHub Packages (per package, if multi-registry)
 
-Run a second `npm publish` with the GitHub Packages registry:
+For each `pkg` in `$QUEUE` that has a `github-packages` entry in its `registries` array:
+
+Run a second `npm publish` targeting GitHub Packages:
 
 ```bash
-cd {$CFG.npm_dir}
+cd <pkg.dir>
 echo "//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}" > .npmrc.gh
-echo "@{$ORG}:registry=https://npm.pkg.github.com" >> .npmrc.gh
+echo "<scope>:registry=https://npm.pkg.github.com" >> .npmrc.gh
 npm publish --userconfig .npmrc.gh --access public
 rm .npmrc.gh
 ```
 
-This makes the package appear in the GitHub repo's "Packages" sidebar widget. (Provenance attestation alone is not always sufficient — the GitHub Packages registry entry is what triggers the widget for older repos.)
+Display per mirror:
 
-### Step 10: Backfill Missing Prior Releases (Idempotent)
+```
+✅ GitHub Packages mirror: {pkg.name}@{pkg.next_version}
+```
+
+### Step 10: Backfill Missing Prior Releases (Idempotent, per tag pattern)
 
 Skip if `$CFG.backfill_on_publish` is `false`.
 
-1. List all tags matching `$CFG.tag_pattern` (turning `{version}` into `*`):
+For EACH unique `tag_pattern` in `$PACKAGES` (deduplicated — typically one for monorepos, sometimes two for mixed-stack repos):
+
+1. List all tags matching this `tag_pattern` (turning `{version}` into `*`):
    - `tag_pattern = "v{version}"` → glob `v*`
    - `tag_pattern = "ts-v{version}"` → glob `ts-v*`
 
-   `git ls-remote --tags origin '{glob}' | awk '{print $2}' | sed 's|refs/tags/||;s|\^{}$||' | sort -u`
+   ```bash
+   git ls-remote --tags origin '<glob>' | awk '{print $2}' | sed 's|refs/tags/||;s|\^{}$||' | sort -u
+   ```
 
-2. List all existing GitHub Releases via API: `GET /repos/{owner}/{repo}/releases?per_page=100`.
+2. List all existing GitHub Releases: `GET /repos/{owner}/{repo}/releases?per_page=100`.
 
-3. Compute the set of tags WITHOUT Releases. This is the backfill list.
+3. Compute the set of tags WITHOUT Releases (filtered to this tag_pattern's matching tags). This is the backfill list for this pattern.
 
-4. If the backfill list is empty: display "Backfill: nothing to do."
+4. If empty for this pattern: display `Backfill ({pattern}): nothing to do.` and move to next pattern.
 
 5. Otherwise:
 
    ```
-   Found {N} prior tags missing GitHub Releases:
+   Backfill ({pattern}) — {N} prior tags missing GitHub Releases:
      - {tag1}  ({when})
      - {tag2}  ({when})
      ...
    ```
 
-   AskUserQuestion(
-     question: "Backfill {N} missing Releases now?",
-     options: ["Yes, backfill all", "No, skip", "Pick specific tags", "Custom"]
-   )
+   AskUserQuestion: Yes-backfill-all / No-skip / Pick-specific / Custom.
 
-   If "Yes": for each missing tag, extract its annotation body (`git tag -l --format='%(contents)' {tag}`) plus matching CHANGELOG section if extractable, POST a Release via REST API with `make_latest: "false"` (so historical releases don't override the current latest). Display per-tag result.
+   If "Yes": for each missing tag, extract its annotation body (`git tag -l --format='%(contents)' {tag}`) and POST a Release via REST API with `make_latest: "false"` (historical releases don't override current latest). Display per-tag result with ✅.
 
-   If "Pick specific": present the list as a multi-select AskUserQuestion (limit 4 per call; if more, batch).
+   If "Pick specific": multi-select AskUserQuestion (batch in chunks of 4).
 
    If "No": note for follow-up and continue.
 
 ### Step 11: Final Report
 
-Display a comprehensive summary:
+Display a comprehensive per-package summary:
 
 ```
 🐝 Pollinate complete!
 
-Package:        {$PKG_NAME}@{$PKG_VERSION}
-Tag:            {$TAG_NAME}
-Release:        {$RELEASE_TITLE}
+Repository:   {owner}/{repo}  ({$REPO_TYPE})
+Version model: {version_model}
+Shared tag(s): {tag_name1}, {tag_name2}, ...
+HEAD commit:  {HEAD_SHA[:8]}
 
-✓ Pushed to origin/main: {HEAD_SHA[:8]}
-✓ Tag pushed: {$TAG_NAME}
-✓ CI workflow: {success | partial-failure-handled | skipped}
-✓ npm registry: {$PKG_NAME}@{$PKG_VERSION} (latest, provenance: {present|absent})
-✓ GitHub Release: {URL}
-{✓ GitHub Packages: published if mirrored}
-{✓ Backfill: {N} prior Releases created}
+Per-package results:
+  ✅ {pkg1.name}@{pkg1.next_version}    published
+       🔗 https://www.npmjs.com/package/{pkg1.name}/v/{pkg1.next_version}
+  ✅ {pkg2.name}@{pkg2.next_version}    published
+       🔗 https://www.npmjs.com/package/{pkg2.name}/v/{pkg2.next_version}
+  ⏭️  {pkg3.name}@{pkg3.current}        skipped (no changes)
+  ⏭️  {pkg4.name}@{pkg4.current}        skipped (no changes)
 
-Verification URLs:
-  npm:    https://www.npmjs.com/package/{$PKG_NAME}/v/{$PKG_VERSION}
-  github: https://github.com/{owner}/{repo}/releases/tag/{$TAG_NAME}
-  CI run: {workflow_run_url}
+GitHub Releases:
+  ✅ {release_title1}  →  https://github.com/{owner}/{repo}/releases/tag/{tag_name1}
+  ✅ {release_title2}  →  https://github.com/{owner}/{repo}/releases/tag/{tag_name2}
+
+CI runs:
+  ✅ {workflow1}  →  https://github.com/{owner}/{repo}/actions/runs/{run_id1}
+  ✅ {workflow2}  →  https://github.com/{owner}/{repo}/actions/runs/{run_id2}
+
+Backfill:
+  ✅ {N} prior Releases created (or "nothing to do")
+
+Gates: {✅ all passed | ⚠️ {N} warnings — see Follow-ups}
 ```
 
 If `$WARNINGS` is non-empty, also display a "Follow-ups" block listing each:
@@ -1321,7 +1726,9 @@ PowerShell 7+ handles this without the `[string]` cast, but pollinate targets th
 
 ## Lifecycle config schema (full reference)
 
-Add to `.bee/config.json`:
+Add to `.bee/config.json`. Two schema modes are supported.
+
+### Multi-package mode (v1.1.0+, recommended for monorepos)
 
 ```json
 {
@@ -1329,7 +1736,44 @@ Add to `.bee/config.json`:
     "repo_type": "npm-package",
     "publishes_to_npm": true,
     "version_source": "package_json",
-    "version_file_path": "VERSION",
+    "version_model": "uniform",
+    "packages": [
+      {
+        "name": "@scope/pkg-name",
+        "dir": "packages/pkg-name",
+        "tag_pattern": "v{version}",
+        "release_title_pattern": "v{version}",
+        "workflow": "publish.yml",
+        "changelog_path": "packages/pkg-name/CHANGELOG.md",
+        "readme_path": "packages/pkg-name/README.md",
+        "registries": [
+          {
+            "kind": "npm",
+            "url": "https://registry.npmjs.org",
+            "access": "public",
+            "provenance": true,
+            "auth_secret": "NPMPUSHER"
+          }
+        ]
+      }
+    ],
+    "tag_message_source": "changelog",
+    "backfill_on_publish": true,
+    "wait_for_ci_seconds": 600,
+    "ci_workflow_skip": false,
+    "branch_protection": "fast-forward"
+  }
+}
+```
+
+### Legacy single-package mode (still supported, backwards-compat)
+
+```json
+{
+  "lifecycle": {
+    "repo_type": "npm-package",
+    "publishes_to_npm": true,
+    "version_source": "package_json",
     "npm_dir": ".",
     "npm_registry": "https://registry.npmjs.org",
     "tag_pattern": "v{version}",
@@ -1347,7 +1791,9 @@ Add to `.bee/config.json`:
 }
 ```
 
-### Field reference
+Pollinate auto-detects which mode is in use: if `packages: [...]` is a non-empty array → multi-package mode; otherwise → legacy single-package mode.
+
+### Field reference (repo-level)
 
 | Field | Type / Values | Used when |
 |---|---|---|
@@ -1355,23 +1801,91 @@ Add to `.bee/config.json`:
 | `publishes_to_npm` | bool — derived from `repo_type` | Gates npm-related steps |
 | `version_source` | `"package_json"` \| `"version_file"` \| `"git_tags"` \| `"manual"` | Step 3 dispatch |
 | `version_file_path` | string | Only when `version_source = "version_file"` |
-| `npm_dir` | string (relative path) | Only when `publishes_to_npm = true` |
-| `npm_registry` | URL | Only when `publishes_to_npm = true` |
-| `use_provenance` | bool | Only when `publishes_to_npm = true` |
-| `github_packages_mirror` | bool | Only when `repo_type = "multi-registry"` |
-| `tag_pattern` | string with `{version}` placeholder | Always |
-| `release_title_pattern` | string with `{version}` placeholder | Always |
+| `version_model` | `"uniform"` \| `"independent"` (deferred to v1.2.0+) | Multi-package mode only |
+| `packages` | array of package entries (see below) | Multi-package mode |
 | `tag_message_source` | `"changelog"` \| `"manual"` \| `"both"` | Always |
-| `changelog_path` | string | Always (warning if missing) |
 | `backfill_on_publish` | bool | Always |
-| `ci_workflow_filename` | string | Only when `ci_workflow_skip = false` |
 | `ci_workflow_skip` | bool | Always |
 | `wait_for_ci_seconds` | number | Only when `ci_workflow_skip = false` |
 | `branch_protection` | `"fast-forward"` \| `"pr-required"` | Always |
 
+### Field reference (per-package, multi-package mode only)
+
+| Field | Type / Values | Default |
+|---|---|---|
+| `name` | string — npm package name | (required) |
+| `dir` | string — relative path to package root | (required) |
+| `tag_pattern` | string with `{version}` placeholder | `"v{version}"` |
+| `release_title_pattern` | string with `{version}` placeholder | `tag_pattern` with prefix stripped |
+| `workflow` | string — CI workflow filename | `"publish.yml"` |
+| `changelog_path` | string | `<dir>/CHANGELOG.md` or root `CHANGELOG.md` |
+| `readme_path` | string | `<dir>/README.md` or root `README.md` |
+| `registries` | array of registry entries | (required, ≥1 entry) |
+
+### Field reference (per-registry, inside a package's `registries`)
+
+| Field | Type / Values | Default |
+|---|---|---|
+| `kind` | `"npm"` \| `"github-packages"` | `"npm"` |
+| `url` | URL | `"https://registry.npmjs.org"` |
+| `access` | `"public"` \| `"restricted"` | `"public"` (scoped) |
+| `provenance` | bool | `true` |
+| `auth_secret` | string — GitHub repo secret name | `"NPMPUSHER"` (npm) / `"GITHUB_TOKEN"` (gh-packages) |
+
+### Field reference (legacy single-package mode only)
+
+| Field | Type / Values |
+|---|---|
+| `npm_dir` | string — directory containing single package.json |
+| `npm_registry` | URL |
+| `use_provenance` | bool |
+| `github_packages_mirror` | bool |
+| `tag_pattern` | string |
+| `release_title_pattern` | string |
+| `changelog_path` | string |
+| `ci_workflow_filename` | string |
+
 ### Per-project examples
 
-**Single-stack TS package** (e.g. OuronetCore):
+**Multi-package monorepo with npm workspaces** (e.g. stoa-js — 3 packages, 1 shared workflow):
+
+```json
+"lifecycle": {
+  "repo_type": "npm-package",
+  "publishes_to_npm": true,
+  "version_model": "uniform",
+  "ci_workflow_skip": false,
+  "wait_for_ci_seconds": 600,
+  "branch_protection": "fast-forward",
+  "packages": [
+    {
+      "name": "@stoachain/kadena-stoic-legacy",
+      "dir": "packages/kadena-stoic-legacy",
+      "tag_pattern": "v{version}",
+      "workflow": "publish.yml",
+      "registries": [{ "kind": "npm", "url": "https://registry.npmjs.org", "access": "public", "provenance": true, "auth_secret": "NPMPUSHER" }]
+    },
+    {
+      "name": "@stoachain/stoa-core",
+      "dir": "packages/stoa-core",
+      "tag_pattern": "v{version}",
+      "workflow": "publish.yml",
+      "registries": [{ "kind": "npm", "url": "https://registry.npmjs.org", "access": "public", "provenance": true, "auth_secret": "NPMPUSHER" }]
+    },
+    {
+      "name": "@stoachain/ouronet-core",
+      "dir": "packages/ouronet-core",
+      "tag_pattern": "v{version}",
+      "workflow": "publish.yml",
+      "registries": [{ "kind": "npm", "url": "https://registry.npmjs.org", "access": "public", "provenance": true, "auth_secret": "NPMPUSHER" }]
+    }
+  ]
+}
+```
+
+All three packages share the same `tag_pattern: "v{version}"` and `workflow: "publish.yml"`. When the user pushes `v4.3.0`, the workflow's smart-detect logic (`PUBLISH_KSL/STOA/OURO` queue computation) publishes only the packages whose `package.json` version matches `4.3.0`. Pollinate's Step 3 mirrors this on the client side: only queues packages with code changes since `v4.2.0` and bumps their package.json before pushing the tag.
+
+**Single-stack TS package** (legacy mode, e.g. OuronetCore):
 
 ```json
 "lifecycle": {
@@ -1381,21 +1895,46 @@ Add to `.bee/config.json`:
 }
 ```
 
-All other fields use defaults.
+All other fields use defaults. Equivalent in multi-package form:
+
+```json
+"lifecycle": {
+  "repo_type": "npm-package",
+  "publishes_to_npm": true,
+  "version_model": "uniform",
+  "packages": [
+    {
+      "name": "@scope/pkg",
+      "dir": ".",
+      "tag_pattern": "v{version}",
+      "workflow": "publish.yml",
+      "registries": [{ "kind": "npm", "url": "https://registry.npmjs.org", "access": "public", "provenance": true, "auth_secret": "NPMPUSHER" }]
+    }
+  ]
+}
+```
 
 **Dual-stack repo with TS port in subdirectory** (e.g. DALOS_Crypto):
 
 ```json
 "lifecycle": {
+  "repo_type": "npm-package",
   "publishes_to_npm": true,
-  "npm_dir": "ts",
-  "tag_pattern": "ts-v{version}",
-  "release_title_pattern": "v{version}",
-  "ci_workflow_filename": "ts-publish.yml"
+  "version_model": "uniform",
+  "packages": [
+    {
+      "name": "@stoachain/dalos-crypto",
+      "dir": "ts",
+      "tag_pattern": "ts-v{version}",
+      "release_title_pattern": "v{version}",
+      "workflow": "ts-publish.yml",
+      "registries": [{ "kind": "npm", "url": "https://registry.npmjs.org", "access": "public", "provenance": true, "auth_secret": "NPMPUSHER" }]
+    }
+  ]
 }
 ```
 
-The `tag_pattern` keeps the `ts-` prefix for git-side disambiguation (the Go reference uses `v*`); the `release_title_pattern` drops it for clean display on GitHub Releases page (matching what npm shows).
+The `tag_pattern` keeps the `ts-` prefix for git-side disambiguation (the Go reference uses `v*`); the `release_title_pattern` drops it for clean display on GitHub Releases.
 
 **Internal/private package** (no GitHub Release, just npm):
 

@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.1.0] - 2026-05-14 — Multi-package `/wasp:pollinate`
+
+`wasp` plugin bumped to `1.1.0`. `bee` plugin unchanged at `4.5.1` (vendored upstream).
+
+### Added (via `wasp` plugin)
+- `/wasp:pollinate` is now multi-package aware. Auto-detects packages (npm workspaces / `packages/*` / custom dirs), runs a 9-check readiness sweep per package on first run, queues only packages with code changes since their last tag, and shows live ✅ polling through publish — registry → dist-tag → provenance → GitHub Release. See [`plugins/wasp/CHANGELOG.md`](plugins/wasp/CHANGELOG.md) v1.1.0 entry for the full feature list.
+- `--batch-approve` flag for ergonomic single-confirmation of the full publish plan.
+- Lifecycle config schema upgrade: new `packages: [...]` array. Legacy single-package config still works backwards-compatibly.
+- SemVer-correct per-package bumping with Conventional Commits auto-suggest.
+
+### Unchanged
+- `bee` plugin under `plugins/bee/` remains byte-identical to upstream bee-dev 1.9.1.
+- All 51 `/bee:*` commands work exactly as before.
+
+---
+
 ## [1.0.0] - 2026-05-14 — Fork foundation
 
 Initial wasp-dev release. Forks [BEE-CODED/bee-dev](https://github.com/BEE-CODED/bee-dev) marketplace `1.9.1` (containing bee plugin `4.5.1`) and adds a complementary `wasp` plugin layering an audit-to-publish lifecycle on top.
