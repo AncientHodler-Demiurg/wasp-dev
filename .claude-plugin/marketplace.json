@@ -1,21 +1,31 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "bee-dev",
-  "version": "1.9.1",
-  "description": "Spec-driven development workflow plugins for Claude Code — includes the Bee Hive live dashboard with live agent activity feed for browsing phases, reports, hook events, and workflow state in a readable web UI",
+  "name": "wasp-dev",
+  "version": "1.0.0",
+  "description": "WASP (Workspace-Aware Spec-based Publisher) — a fork of bee-dev that ships the upstream bee plugin (vendored unmodified) alongside a wasp plugin layering an audit-to-publish lifecycle (audit-prep, bundle/unify-audit-specs, pollinate) on top — with multi-package and cross-repository cascade publishing landing in subsequent versions.",
   "owner": {
-    "name": "Beecoded",
-    "email": "george.popescu@beecoded.ro"
+    "name": "AncientHodler-Demiurg",
+    "url": "https://github.com/AncientHodler-Demiurg"
   },
   "plugins": [
     {
       "name": "bee",
-      "description": "Spec-driven development workflow with review gates, the Bee Hive local dashboard, and a live agent activity feed powered by Claude Code hooks — take features from idea to commit and watch tool calls stream in real time",
-      "version": "1.9.1",
+      "description": "Vendored unmodified from upstream bee-dev 1.9.1 (bee plugin 4.5.1). Spec-driven development workflow with review gates, the Bee Hive local dashboard, and a live agent activity feed powered by Claude Code hooks. All upstream /bee:* commands work exactly as in the original.",
+      "version": "4.5.1",
       "author": {
         "name": "Beecoded"
       },
       "source": "./plugins/bee",
+      "category": "development"
+    },
+    {
+      "name": "wasp",
+      "description": "Workspace-Aware Spec-based Publisher — additive layer on top of bee. Adds /wasp:audit-prep, /wasp:bundle-audit-specs, /wasp:unify-audit-specs, /wasp:pollinate. Future versions add multi-package detection and cross-repository cascade publishing.",
+      "version": "1.0.0",
+      "author": {
+        "name": "AncientHodler-Demiurg"
+      },
+      "source": "./plugins/wasp",
       "category": "development"
     }
   ]

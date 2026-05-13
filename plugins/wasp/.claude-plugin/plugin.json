@@ -1,0 +1,23 @@
+{
+  "name": "wasp",
+  "version": "1.0.0",
+  "description": "Workspace-Aware Spec-based Publisher — an additive layer on top of the bee plugin that adds the audit-prep + bundle/unify-audit-specs + pollinate audit-to-publish lifecycle, and (1.1.0+) multi-package repository awareness with cross-repository cascade publishing.",
+  "author": {
+    "name": "AncientHodler-Demiurg",
+    "url": "https://github.com/AncientHodler-Demiurg"
+  },
+  "repository": "https://github.com/AncientHodler-Demiurg/wasp-dev",
+  "license": "MIT",
+  "keywords": [
+    "wasp",
+    "bee",
+    "tdd",
+    "spec-driven",
+    "monorepo",
+    "multi-package",
+    "publish",
+    "audit",
+    "workspace",
+    "cascade"
+  ]
+}
