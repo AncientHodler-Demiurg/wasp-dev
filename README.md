@@ -23,7 +23,8 @@ A separate plugin that adds four new lifecycle commands and never modifies bee:
 | `/wasp:audit-prep` | Pre-audit safety check — verifies `.bee/audit-specs/` is clean before the next `/bee:audit` cycle |
 | `/wasp:bundle-audit-specs` | Group loose audit-specs into per-theme `bundles/<name>/_bundle.md` folders |
 | `/wasp:unify-audit-specs` | Consolidate loose files + bundles into a single mega-bundle ready for `/bee:new-spec --from-discussion` |
-| `/wasp:pollinate` | Post-ship publishing pipeline: push, tag, wait for CI, verify on npm, create + backfill GitHub Releases |
+| `/wasp:pollinate` | Post-ship publishing pipeline: push, tag, wait for CI, verify on npm, create + backfill GitHub Releases. Multi-package monorepo aware (v1.1.0+) — auto-detects packages, queues only the ones whose code changed, polls each package live with ✅ visuals through publish. |
+| `/wasp:cross-pollinate` | Cross-repository cascade publisher (v1.2.0+) — orchestrates `/wasp:pollinate` across a workspace of linked repos in dep-graph order, with downstream dep-pin updates between hops. |
 
 - Folder: `plugins/wasp/`
 - See [`plugins/wasp/README.md`](plugins/wasp/README.md) for command-level docs
@@ -71,8 +72,8 @@ If you previously had `bee-dev` registered as a marketplace, you can remove it (
 | wasp-dev | bee plugin | wasp plugin | Notes |
 |---|---|---|---|
 | `1.0.0` | `4.5.1` (vendored unmodified) | `1.0.0` | Foundation: split plugins, 4 wasp commands from the audit-to-publish lifecycle, fork hygiene |
-| `1.1.0` (planned) | `4.5.1` | `1.1.0` | Multi-package detection in `/wasp:pollinate` (npm workspaces, `packages/*`, custom dirs) |
-| `1.2.0+` (planned) | `4.5.1` | `1.2.0+` | `/wasp:mass-pollinate` cross-repo cascade publishing |
+| `1.1.0` | `4.5.1` | `1.1.0` | Multi-package detection in `/wasp:pollinate` (npm workspaces, `packages/*`, custom dirs); per-package readiness sweep + live ✅ polling |
+| `1.2.0` | `4.5.1` | `1.2.0` | `/wasp:cross-pollinate` cross-repository cascade orchestration with dep-graph traversal, topo-sorted serial execution, and downstream dep-pin updates |
 
 ## License
 

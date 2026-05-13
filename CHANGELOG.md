@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.2.0] - 2026-05-14 — `/wasp:cross-pollinate` cross-repository cascade
+
+`wasp` plugin bumped to `1.2.0`. `bee` plugin unchanged at `4.5.1` (vendored upstream).
+
+### Added (via `wasp` plugin)
+- `/wasp:cross-pollinate` — new top-level command that orchestrates `/wasp:pollinate` across a workspace of linked repositories. Auto-infers the dependency graph from package.json scans, runs SCAN → CLOSE → TOPO-SORT to compute the cascade order, then executes serially with live ✅ polling per package and downstream dep-pin updates between hops. Includes `--init` bootstrap wizard, `--dry-run` (mandatory for first runs), `--execute` opt-out, `--batch-approve` for ergonomic flow, and `--resume` for post-failure continuation.
+- Workspace state directory `.wasp/` is introduced. Holds `cross-pollinate.yml` (config), `cross-pollinate-state.json` (transient resume state), `cross-pollinate-history.md` (persistent audit log).
+
+See [`plugins/wasp/CHANGELOG.md`](plugins/wasp/CHANGELOG.md) v1.2.0 for the full feature list.
+
+### Unchanged
+- `bee` plugin under `plugins/bee/` remains byte-identical to upstream bee-dev 1.9.1.
+- `/wasp:pollinate` v1.1.0 multi-package behavior unchanged — cross-pollinate delegates per-package work to it.
+
+---
+
 ## [1.1.0] - 2026-05-14 — Multi-package `/wasp:pollinate`
 
 `wasp` plugin bumped to `1.1.0`. `bee` plugin unchanged at `4.5.1` (vendored upstream).

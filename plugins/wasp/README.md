@@ -9,7 +9,8 @@
 | **`/wasp:audit-prep`** | Pre-audit safety check — verifies `.bee/audit-specs/` is clean before the next audit cycle | Before `/bee:audit` (always recommended) | First step of audit cycle |
 | **`/wasp:bundle-audit-specs`** | Explicitly group loose audit-specs into per-theme `bundles/<name>/_bundle.md` folders | After `/bee:audit-to-spec`, before `/bee:new-spec` | Optional intermediate step |
 | **`/wasp:unify-audit-specs`** | Consolidate loose files + existing bundles into one mega-bundle `_unified.md` with milestone structure; empties `.bee/audit-specs/` | After `/bee:audit-to-spec` (and optionally after bundling), before `/bee:new-spec` | Optional intermediate step |
-| **`/wasp:pollinate`** | Post-ship publishing pipeline (push, tag, CI publish, GitHub Release, npm registry verify, backfill) | After `/bee:ship` + `/bee:commit`, before `/bee:archive-spec` | After commit, before archive |
+| **`/wasp:pollinate`** | Post-ship publishing pipeline (push, tag, CI publish, GitHub Release, npm registry verify, backfill). Multi-package monorepo aware in v1.1.0+. | After `/bee:ship` + `/bee:commit`, before `/bee:archive-spec` | After commit, before archive |
+| **`/wasp:cross-pollinate`** | Cross-repository cascade publisher — orchestrates `/wasp:pollinate` across a workspace of linked repos in topo-sorted dep-graph order, with downstream dep-pin updates between hops. v1.2.0+. | From a workspace containing multiple repos | Workspace-level release ceremony |
 
 All four are **conversational** (use `AskUserQuestion` at every visible/destructive decision point) and **idempotent** (re-runnable after partial failures).
 

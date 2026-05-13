@@ -6,6 +6,58 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.2.0] - 2026-05-14 — `/wasp:cross-pollinate` cross-repository cascade
+
+Ships the cross-repository orchestrator. Where `/wasp:pollinate` v1.1.0 handles one repo's multi-package monorepo publish, `/wasp:cross-pollinate` walks a dependency graph across MULTIPLE linked repositories and republishes in topo-sorted order, with downstream dep-pin updates between hops.
+
+### Added
+
+- **`/wasp:cross-pollinate` command** — new top-level workflow command. Lives at `plugins/wasp/commands/cross-pollinate.md`. ~700 lines covering bootstrap wizard, validation, SCAN/CLOSE/TOPO-SORT pipeline, serial per-package execution with live ✅ polling, downstream dep-pin updates, consumer commits, final report, history append, and resume support.
+
+- **Workspace config schema** — `.wasp/cross-pollinate.yml` at the workspace root declares:
+  - `workspace` block (name, root)
+  - `repos` array (path, publishes flag, packages list, branch)
+  - `edges` array (from / to / to_repo / to_field — auto-inferred from package.json scans, user-confirmed)
+  - `settings` block (cascade_devDependencies, auto_cascade_peerDeps, default_dep_only_bump, parallel_unrelated_packages, consumer_repo_branch)
+
+- **Bootstrap wizard (Stage A→E)**:
+  - A: auto-detect member repos (immediate subfolders of workspace root that are git repos)
+  - B: confirm member repos, distinguish publishers vs consumer apps
+  - C: auto-infer dep graph by scanning package.json `dependencies`, `peerDependencies`, `devDependencies` across all repos
+  - D: confirm/edit edges (visual graph display, AskUserQuestion to add/remove/change type per edge)
+  - E: save `cross-pollinate.yml` + initial empty `cross-pollinate-history.md`
+
+- **SCAN phase (Step 3)**: per-repo per-package `git diff <last_tag>..HEAD -- <pkg.dir>` to compute `$INITIAL_QUEUE` of packages with code changes since their last release tag. Delegates to `/wasp:pollinate` Step 3.1 logic.
+
+- **CLOSE phase (Step 4)**: propagate queue along dep edges. When an upstream package is queued, downstream packages depending on it (via `dep` or `peerDep`) become candidates. AskUserQuestion per hop (auto-cascade with `--batch-approve`). Dep-only bumps default to PATCH (configurable via `settings.default_dep_only_bump`).
+
+- **TOPO-SORT phase (Step 5)**: Kahn's algorithm sorts `$CLOSED_QUEUE` so leaves (no in-queue upstreams) publish first, roots (consumed by others-in-queue) last. Cycle detection halts the run with a diagnostic.
+
+- **Strict serial execution (Step 7)**: package N+1 starts ONLY after package N is verified live on the registry. Live ✅ polling at each gate (bumping → committing → pushing → tag pushed → workflow starting → workflow green → npm live → dist-tag latest → provenance present → Release created). Each ⏳ transitions to ✅ on pass, ❌ on fail.
+
+- **Cross-repo dep-pin updates (Step 7.9)**: after a package is published, every queued downstream's `package.json` peer-dep / dep pin to that package is updated to the new version. Consumer repos (publishes:false) accumulate pin updates and get a single `chore(deps)` commit at the end (Step 7.11).
+
+- **Resume support**: `.wasp/cross-pollinate-state.json` records `next_package_index` and `completed_packages`. `--resume` flag picks up from the recorded state. Resume re-validates SCAN results to detect drift between the failed run and the resume.
+
+- **History audit trail**: `.wasp/cross-pollinate-history.md` accumulates one entry per cascade run. Useful for retrospectives and "when did we ship X" archaeology.
+
+- **Dry-run mode (mandatory on first run)**: `--dry-run` walks the full pipeline through Step 6 (plan display) but halts before any destructive action. `--execute` opts out of the dry-run gate after the first successful dry-run.
+
+- **`--batch-approve` flag**: presents the cascade plan once after Step 6 and proceeds without per-step prompts. Mirrors `/wasp:pollinate` v1.1.0's batch-approve semantics.
+
+### Notes
+
+- **State directory**: `/wasp:cross-pollinate` is the first wasp command to write to `.wasp/` (workspace-level). Per-repo state still lives in each repo's `.bee/`.
+- **Cross-pollinate delegates per-package work to pollinate**: Step 7's sub-steps (4-9 except the cross-repo dep-pin update at 7.9) intentionally mirror pollinate's steps to keep the per-package logic in one place. Future pollinate improvements automatically benefit cross-pollinate.
+- **Parallelism deferred to v1.2.1+**: unrelated packages (no shared edges in the queue) could publish in parallel. v1.2.0 is strictly serial for simplicity and safety. Setting `parallel_unrelated_packages: true` in config is a future-proofing flag, ignored in v1.2.0.
+
+### Known limitations addressed in future versions
+
+- **Cycle resolution**: v1.2.0 halts on detected cycles. v1.2.1+ may offer manual cycle-break edge selection.
+- **Multi-workspace orchestration**: cross-pollinate handles ONE workspace at a time. Cross-workspace cascades (e.g. publishing in one workspace bumps deps in another) remain manual.
+
+---
+
 ## [1.1.0] - 2026-05-14 — Multi-package `/wasp:pollinate`
 
 `/wasp:pollinate` learns to handle monorepos: detects every publishable package in a repo, queues only the ones whose code actually changed since their last release tag, validates each package's full publish route end-to-end before saving config, and shows live ✅ polling per package through the publish flow.
