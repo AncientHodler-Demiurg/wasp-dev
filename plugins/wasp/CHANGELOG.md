@@ -6,6 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.4.2] - 2026-05-14 — `/wasp:health`, `/wasp:forensics`, `/wasp:debug` (wasp-side diagnostic trio)
+
+Adds three new diagnostic commands that fill the gap bee covers with its `/bee:health` + `/bee:forensics` + `/bee:debug` trio. Wasp's data shape is different from bee's (state.md per command, `.wasp/.archive/`, cross-pollinate workspace config), so these are wasp-specific equivalents — same intent + structure, different data sources.
+
+### Added
+
+- **`/wasp:health`** (~250 lines, `plugins/wasp/commands/health.md`). Read-only diagnostic with 5 workspace-level checks (W1-W5) and 12 per-repo checks (R1-R12). Auto-detects scope from CWD (workspace mode if at workspace root; repo mode if inside a repo; both if inside a repo within a workspace). Each check produces PASS / WARN / FAIL with a one-line message and recovery suggestion. Final report includes a summary table + per-repo detail blocks + overall health verdict (GOOD / NEEDS ATTENTION / BROKEN). Optional `--fix` flag auto-remediates WARN-level issues (never auto-fixes FAILs — those require human decisions). Appends to `.wasp/health-history.md` for longitudinal tracking.
+  - Workspace checks: cross-pollinate.yml validity, member repos on disk, dep-graph edges valid, dep-graph matches reality, no orphaned workspace state.md
+  - Per-repo checks: `.wasp/config.json` validity, lifecycle required fields, package dirs exist, package names match lifecycle, target_branch is current HEAD, workflow files exist, pollinate-credentials file present, local PAT present + non-empty, PAT validates via GitHub API with required scopes, GitHub repo secrets present, no orphaned per-repo state.md, last tag matches pattern
+
+- **`/wasp:forensics`** (~300 lines, `plugins/wasp/commands/forensics.md`). Post-mortem analysis of a specific failed wasp run. Targets a single state.md (active in-flight via `--active`, most recent archive via `--recent`, or specific archive via `--archive <run_id>`). Steps: locate target → parse state.md → reconstruct timeline → external reality cross-check (compares each recorded gate against git/npm/GitHub actual state to detect state-vs-reality divergence) → diagnose root cause (clean failure / divergence detected / silent stall) → recovery suggestions ranked by recommendation. Read-only — never modifies state, never auto-recovers. Output can be saved to `.wasp/forensics-{run_id}.md` for persistent reference.
+
+- **`/wasp:debug`** (~250 lines, `plugins/wasp/commands/debug.md`). Open-ended investigation entry point. For "something's off, help me figure out what" scenarios. Auto-discovers context (in-flight state.md files across workspace + repos, recent archives, config integrity, recent git commits, external state reachability), ranks hypotheses by likelihood given the signal, walks the user through targeted drill-down via AskUserQuestion. May invoke `/wasp:health` or `/wasp:forensics` as sub-tools when the investigation points there. Supports pre-population from prior forensics (`--from-forensics <run_id>`) or health (`--from-health`) runs. Optional session persistence: substantive investigations can be saved to `.wasp/debug-sessions/{slug}.md`.
+
+### Design rationale
+
+Three commands, three distinct intents:
+- **Health** = "is my setup OK?" — structured check pass, all checks always run
+- **Forensics** = "this specific run failed, what happened?" — targeted at one state.md, cross-checks recorded vs actual reality
+- **Debug** = "something's off, where do I start?" — open-ended, may dispatch to health or forensics
+
+All three are read-only by default. None auto-modifies state files. Recovery actions remain the user's decision (the user invokes `--resume`, `--reinit`, manual fixes, etc.).
+
+### Wasp now has 8 commands
+
+| Command | Role |
+|---|---|
+| `/wasp:audit-prep` | Pre-audit safety check |
+| `/wasp:bundle-audit-specs` | Group loose audit-specs |
+| `/wasp:unify-audit-specs` | Consolidate into mega-bundle |
+| `/wasp:pollinate` | Per-repo publish pipeline (multi-package, resume) |
+| `/wasp:cross-pollinate` | Cross-repo cascade (workspace orchestration, resume) |
+| `/wasp:health` | Setup-validity check (NEW v1.4.2) |
+| `/wasp:forensics` | Failed-run post-mortem (NEW v1.4.2) |
+| `/wasp:debug` | Open-ended investigation (NEW v1.4.2) |
+
+Plus all 51 vendored `/bee:*` commands from upstream bee 4.5.1.
+
+---
+
 ## [1.4.1] - 2026-05-14 — `.wasp/state.md` extended to ALL wasp commands
 
 v1.4.0 introduced `.wasp/state.md` for `/wasp:pollinate` only. v1.4.1 extends the same protocol to the other four wasp commands so every wasp invocation leaves a persistent state-file trail.

@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.4.2] - 2026-05-14 — `/wasp:health`, `/wasp:forensics`, `/wasp:debug`
+
+`wasp` plugin bumped to `1.4.2`. `bee` plugin unchanged at `4.5.1` (vendored upstream).
+
+### Added (via `wasp` plugin)
+Three new diagnostic commands that parallel bee's `/bee:health` + `/bee:forensics` + `/bee:debug` trio, adapted for wasp's data shape (state.md, cross-pollinate.yml, .wasp/.archive/):
+
+- `/wasp:health` — read-only setup validation. 5 workspace checks + 12 per-repo checks (configs, credentials, PAT scopes, GitHub secrets, dep graph integrity, no orphaned state.md, etc.). PASS/WARN/FAIL per check with recovery hints. Optional `--fix` flag auto-remediates WARN-level issues. Appends to `.wasp/health-history.md`.
+- `/wasp:forensics` — post-mortem analysis of a specific failed/stuck run. Targets active or archived state.md, reconstructs timeline, cross-checks recorded gates against external reality (git/npm/GitHub), diagnoses root cause (clean failure / divergence / silent stall), suggests recovery actions ranked.
+- `/wasp:debug` — open-ended investigation entry point. Auto-discovers context, ranks hypotheses, walks user through targeted drill-down via AskUserQuestion. May dispatch to /wasp:health or /wasp:forensics for deeper analysis.
+
+All three are read-only by default. None auto-fixes (recovery remains user's call).
+
+Wasp now ships 8 commands total. See [`plugins/wasp/CHANGELOG.md`](plugins/wasp/CHANGELOG.md) v1.4.2 for the full feature list.
+
+### Unchanged
+- `bee` plugin pristine at 4.5.1.
+
+---
+
 ## [1.4.1] - 2026-05-14 — `.wasp/state.md` extended to all wasp commands
 
 `wasp` plugin bumped to `1.4.1`. `bee` plugin unchanged at `4.5.1` (vendored upstream).
