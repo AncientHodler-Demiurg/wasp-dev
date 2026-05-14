@@ -6,6 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.4.4] - 2026-05-14 — SessionStart banner + `--add-member` wizard
+
+Two quality-of-life additions that surface wasp's existence at session start and make adding a new workspace member a guided wizard instead of a hand-edited checklist.
+
+### Added
+
+- **SessionStart hook** (`plugins/wasp/hooks/hooks.json` + `plugins/wasp/scripts/session-start.sh`). Bash script (cross-platform via git-bash on Windows) that runs at Claude Code session start. Mirrors the pattern bee uses for its session context loader. Detects:
+  - Workspace context: walks up to 5 directories from `$CLAUDE_PROJECT_DIR` looking for `.wasp/cross-pollinate.yml`. If found, reports workspace name + repo count + edge count.
+  - Repo context: if CWD has `.wasp/config.json`, reports repo name + lifecycle type + current git branch.
+  - In-flight state alerts: if workspace-level or per-repo `state.md` has `Status` other than `complete`, prints a `⚠️` alert with recovery hint (run forensics or --resume).
+  - Available commands listed at the bottom.
+  - **Silent exit** when CWD has no wasp data at any level — does nothing in non-wasp folders.
+  - Version source: reads from the active plugin.json (so "wasp v1.4.4" matches whatever's installed).
+
+- **`/wasp:cross-pollinate --add-member`** — new flag dispatch in cross-pollinate.md that bypasses Steps 1-9 and runs a 7-stage wizard:
+  - **M-A Identify the new repo:** path or clone-from-URL with target folder + branch.
+  - **M-B Detect role:** consumer (publishes: false) / publisher (publishes own packages via /wasp:pollinate) / both.
+  - **M-C Workspace dep selection:** multi-select against the workspace's publishable packages. Auto-detects existing deps in the new member's package.json and pre-checks them. For each selected, asks edge type (dep / peerDep / devDep). For packages NOT yet in package.json, offers to add them at the current published version.
+  - **M-D Generate per-repo `.wasp/` files:** lifecycle config.json (plain for consumer; full pollinate Stage A wizard for publisher), pollinate-credentials.md from template, optional `.secrets/pat.txt` scaffold, `.gitignore` adds.
+  - **M-E Update workspace config:** atomic append to `.wasp/cross-pollinate.yml` repos + edges.
+  - **M-F Re-render `.wasp/dep-graph.md`:** uses the v1.4.3 template logic.
+  - **M-G Summary:** files created/updated, next-steps checklist (add PAT, npm install, run /wasp:health).
+  - State tracked in `.wasp/state.md` with `Status: adding-member`. Reversible on cancel.
+
+### Design rationale
+
+**SessionStart banner — discoverability over invisibility.** The user opens a session in a folder, sees the banner, immediately knows: (a) this is wasp-managed, (b) version, (c) workspace shape, (d) any pending in-flight state. Eliminates the "what plugin tooling does this folder use?" friction. Same pattern bee uses for its `.bee/STATE.md` context loader.
+
+**--add-member as a flag, not a new top-level command.** Three reasons: (1) it modifies workspace config which cross-pollinate owns; (2) fits the existing flag pattern (--init / --reinit / --dry-run / --execute / --batch-approve / --resume); (3) keeps wasp at 8 top-level commands without `/wasp:` namespace bloat.
+
+**Auto-detect + confirm pattern in Stage M-C.** The wizard scans the new member's package.json for existing @stoachain/* deps and pre-fills the selection. User confirms or edits. This is the same UX as `--reinit`'s Stage D ("Confirm/edit dep graph") — consistent across the command.
+
+**Atomic writes throughout.** Every file write goes through temp + rename to prevent half-written state on crash. Especially important for cross-pollinate.yml — corrupting that breaks every other wasp command.
+
+### Wasp now has 8 commands (unchanged from v1.4.2/v1.4.3)
+
+--add-member is a flag on cross-pollinate, not a new command. The command roster stays at 8.
+
+---
+
 ## [1.4.3] - 2026-05-14 — Auto-generated `.wasp/dep-graph.md` + cascade subgraph visualization
 
 The dependency graph lived only as a flat YAML edge list inside `cross-pollinate.yml`. v1.4.3 surfaces it as a human-readable markdown artifact (`dep-graph.md`) — ASCII layer model, Mermaid diagram, edge table, cascade scenarios, version snapshot — generated on every `--init/--reinit` and kept in sync via a new health check.

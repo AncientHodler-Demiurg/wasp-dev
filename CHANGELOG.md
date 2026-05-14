@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.4.4] - 2026-05-14 — SessionStart banner + `/wasp:cross-pollinate --add-member` wizard
+
+`wasp` plugin bumped to `1.4.4`. `bee` plugin unchanged at `4.5.1` (vendored upstream).
+
+### Added (via `wasp` plugin)
+
+Two quality-of-life additions:
+
+- **SessionStart hook** — a new `plugins/wasp/hooks/hooks.json` registers a `SessionStart` hook that runs `plugins/wasp/scripts/session-start.sh`. The script auto-detects whether CWD is a wasp-managed workspace (walks up looking for `.wasp/cross-pollinate.yml`) and/or a wasp-managed repo (`.wasp/config.json` in CWD), then prints a banner showing wasp version, workspace name + repo/edge counts, active repo context (name, lifecycle type, current branch), and any in-flight state.md alerts. Silent exit when CWD has no wasp data. No new dependencies — pure bash + plugin.json read.
+
+- **`/wasp:cross-pollinate --add-member`** — interactive wizard for adding a new repo to an existing workspace without re-inferring the full dep graph. 7-stage flow: (M-A) identify repo by path or git clone URL; (M-B) detect role (consumer / publisher / both); (M-C) multi-select workspace packages to depend on with per-edge dep-type choice and optional auto-add to package.json; (M-D) generate per-repo `.wasp/config.json` + `pollinate-credentials.md` + scaffolded `.secrets/pat.txt` + `.gitignore` adds; (M-E) atomic update of `cross-pollinate.yml` (append repo + edges); (M-F) re-render `dep-graph.md` via the v1.4.3 template; (M-G) summary with next-steps checklist. Uses `.wasp/state.md` for crash recovery. Fully reversible if user cancels.
+
+### Use case
+
+Both features serve the multi-consumer workspace pattern (one shared core, N consumer apps). The SessionStart banner makes the wasp version + workspace shape visible at every session — no more "is this still wasp-managed? what version?" friction. The --add-member wizard makes bringing a new consumer (or publisher) into the workspace a guided 30-second operation instead of a hand-edited 5-step checklist.
+
+### Unchanged
+- `bee` plugin pristine at 4.5.1.
+
+---
+
 ## [1.4.3] - 2026-05-14 — Auto-generated `.wasp/dep-graph.md` + cascade subgraph visualization
 
 `wasp` plugin bumped to `1.4.3`. `bee` plugin unchanged at `4.5.1` (vendored upstream).

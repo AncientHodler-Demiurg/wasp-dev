@@ -1,6 +1,6 @@
 ---
-description: Cross-repository cascade publisher — orchestrates /wasp:pollinate across a workspace of linked repositories in dependency-graph order. SCANs each member repo for code changes, CLOSEs the queue by propagating along dependency edges (upstream republishes → downstream peer-dep bumps), TOPO-SORTs the resulting queue, then EXECUTEs serially with live ✅ polling per package — pushing, tagging, waiting for CI, verifying on the registry, creating GitHub Releases, and committing dep-pin updates in downstream repos. First run = bootstrap wizard that auto-infers the dep graph from package.json scans across member repos. Resumable after partial failure.
-argument-hint: "[--init] [--dry-run] [--execute] [--batch-approve] [--resume] [--reinit]"
+description: Cross-repository cascade publisher — orchestrates /wasp:pollinate across a workspace of linked repositories in dependency-graph order. SCANs each member repo for code changes, CLOSEs the queue by propagating along dependency edges (upstream republishes → downstream peer-dep bumps), TOPO-SORTs the resulting queue, then EXECUTEs serially with live ✅ polling per package — pushing, tagging, waiting for CI, verifying on the registry, creating GitHub Releases, and committing dep-pin updates in downstream repos. First run = bootstrap wizard that auto-infers the dep graph from package.json scans across member repos. `--add-member` runs an interactive wizard to add a new repo to an existing workspace without re-inferring the full graph. Resumable after partial failure.
+argument-hint: "[--init] [--dry-run] [--execute] [--batch-approve] [--resume] [--reinit] [--add-member]"
 ---
 
 ## Current State (load before proceeding)
@@ -39,6 +39,7 @@ Before anything else, dispatch on `$ARGUMENTS`:
 - `--dry-run` → run the full pipeline (Steps 1-6) but halt before Step 7 (EXECUTE). Prints the cascade plan in full. **Mandatory for first runs** unless `--execute` is explicitly passed.
 - `--execute` → opt out of the dry-run-first safety. Required after the first successful dry-run.
 - `--batch-approve` → present the cascade plan once after Step 6 and proceed through Step 7 without per-step prompts. AskUserQuestion checkpoints are skipped within Step 7 unless something fails.
+- `--add-member` → **bypass standard cascade flow.** Run the **Add Member Wizard** instead (see dedicated section below). Use this to add a new repo to an existing workspace without re-inferring the full dep graph from scratch. Requires `$WORKSPACE_CONFIG` to be populated (cross-pollinate must already be initialized via `--init`).
 
 Default with no flags: behave as if `--dry-run` is set on first run; behave as if `--execute` is set on subsequent runs (state file exists). Always print a clear banner showing the mode.
 
@@ -977,6 +978,267 @@ AskUserQuestion(
   ]
 )
 ```
+
+---
+
+## Add Member Wizard (`--add-member` flag handler)
+
+When `--add-member` is set, **skip Steps 1-9 entirely** and run this wizard instead. The wizard's job is exclusively to extend `.wasp/cross-pollinate.yml` + generate per-repo `.wasp/` files for a new member, then re-render `dep-graph.md`. It does NOT trigger any publishes.
+
+**Pre-requisite:** `$WORKSPACE_CONFIG` must be populated (Step 0.1 detection succeeded). If not, halt with: `"--add-member requires an initialized workspace. Run /wasp:cross-pollinate --init first."`
+
+Initialize `.wasp/state.md` with `Command: cross-pollinate` and `Status: adding-member` per the shared state-file protocol.
+
+### Stage M-A: Identify the new repo
+
+AskUserQuestion:
+```
+question: "How do we get the new member repo?",
+options: [
+  "Already cloned somewhere — I'll provide the path",
+  "Clone from a GitHub URL into the workspace",
+  "Cancel"
+]
+```
+
+**If "Already cloned":** ask for path (absolute, or relative to `$WORKSPACE_ROOT`). Verify the path exists and contains `.git/`. If the path is OUTSIDE `$WORKSPACE_ROOT`, halt with a recommendation to move it inside (cross-pollinate's per-repo paths are workspace-relative).
+
+**If "Clone from URL":** ask:
+- GitHub URL (e.g. `https://github.com/Org/RepoName`)
+- Target folder name within `$WORKSPACE_ROOT` (default: derive from URL — e.g. `RepoName`)
+- Branch to check out (default: repo's default branch)
+
+Execute:
+```bash
+cd "$WORKSPACE_ROOT"
+git clone "$URL" "$TARGET_FOLDER"
+cd "$TARGET_FOLDER"
+git checkout "$BRANCH" 2>/dev/null || true
+```
+
+Verify success. Record `$MEMBER_PATH` (relative to workspace root) and `$MEMBER_ABS_PATH`.
+
+### Stage M-B: Detect role + read existing package.json
+
+Read `$MEMBER_ABS_PATH/package.json` if it exists. Capture:
+- `package.json.name` if present (could be a publishable package or just an internal name)
+- Dependencies on any workspace package (scan all 3 dep fields)
+
+AskUserQuestion:
+```
+question: "What role will this repo play in the workspace?",
+options: [
+  "Consumer (only receives dep-pin updates — like OuronetUI)",
+  "Publisher (publishes its own packages — like stoa-js or DALOS_Crypto)",
+  "Both (publishes AND consumes — e.g. a tool that ships its own package and also consumes others)"
+]
+```
+
+Record as `$MEMBER_ROLE`.
+
+### Stage M-C: Workspace dep selection (the heart of the wizard)
+
+Enumerate all publishable workspace packages by reading every existing member's `.wasp/config.json` `lifecycle.packages[].name`:
+
+```
+$WORKSPACE_PACKAGES = [
+  "@stoachain/kadena-stoic-legacy",
+  "@stoachain/stoa-core",
+  "@stoachain/ouronet-core",
+  "@stoachain/dalos-crypto"
+]
+```
+
+For each workspace package, check if it's already a dep in the new member's `package.json` (in any of the 3 dep fields).
+
+Display:
+```
+Which workspace packages does this repo depend on?
+
+  [✓] @stoachain/kadena-stoic-legacy   (auto-detected as `dependencies` at "4.2.0")
+  [✓] @stoachain/stoa-core             (auto-detected as `dependencies` at "4.2.0")
+  [✓] @stoachain/ouronet-core          (auto-detected as `dependencies` at "4.2.0")
+  [ ] @stoachain/dalos-crypto          (not in package.json yet)
+```
+
+AskUserQuestion (multi-select via repeated yes/no, OR use AskUserQuestion's option-list form):
+```
+For each package, ask:
+  question: "Include {package_name}?",
+  options: ["Yes — keep auto-detected", "Yes — but I'll change the dep type", "Skip", "Add even though not in package.json yet"]
+```
+
+For each INCLUDED package, ask edge type:
+```
+question: "{package_name} — what edge type?",
+options: [
+  "dependencies (consumer brings its own copy — leaf app pattern)",
+  "peerDependencies (consumer satisfies upstream's peer — mid-tier package pattern)",
+  "devDependencies (build-time only — won't cascade)"
+]
+```
+
+Default suggestions:
+- Consumer role + leaf usage → `dependencies`
+- Publisher role + library usage → `peerDependencies`
+- Build tools / test scaffolding → `devDependencies`
+
+For packages selected that are NOT yet in `package.json`, ask:
+```
+question: "{package_name} isn't in {member_path}/package.json yet. What now?",
+options: [
+  "Add it to package.json now (you'll npm install after)",
+  "Skip — I'll add it manually then re-run --add-member",
+  "Just record the edge anyway (advanced: cross-pollinate will update the pin when it appears later)"
+]
+```
+
+If "Add now": edit the member's `package.json` to add the dep at the **current published version** (query `npm view {package_name} version`). Print a reminder: `"After this wizard finishes, run 'cd $MEMBER_PATH && npm install'"`.
+
+Record selections as `$NEW_EDGES = [{from: pkg, to: member, to_repo: member_path, to_field: dep_type, current_pin: version}, ...]`.
+
+### Stage M-D: Generate per-repo `.wasp/` files
+
+#### M-D.1: `.wasp/config.json` (lifecycle)
+
+If `$MEMBER_ROLE == "Consumer"`:
+```json
+{
+  "lifecycle": {
+    "repo_type": "plain",
+    "publishes_to_npm": false,
+    "version_source": "manual",
+    "tag_pattern": "v{version}",
+    "release_title_pattern": "v{version}",
+    "tag_message_source": "manual",
+    "target_branch": "{ask user — default: current HEAD branch}",
+    "backfill_on_publish": false,
+    "ci_workflow_skip": true,
+    "branch_protection": "fast-forward"
+  }
+}
+```
+
+If `$MEMBER_ROLE == "Publisher"` or `"Both"`: run a mini-version of pollinate's Stage A wizard (ask repo_type, packages array, tag pattern, workflow file, auth secrets, etc.). Reuse the schema from `pollinate.md`'s lifecycle config appendix.
+
+Write to `$MEMBER_ABS_PATH/.wasp/config.json`.
+
+#### M-D.2: `.wasp/pollinate-credentials/pollinate-credentials.md`
+
+Generate from template:
+```markdown
+# Pollinate credentials — initialized {ISO 8601}
+
+**Github repository:** {derived from git remote get-url origin}
+**Github owner:** {derived}
+**Github repo:** {derived}
+**Repo type:** {repo_type from config.json}
+**Target branch:** {target_branch}
+**Local PAT path:** .secrets/pat.txt
+**PAT scopes (expected):** {`repo, workflow` for consumer; add `write:packages` for publisher}
+**PAT verified at:** {pending — not yet verified}
+**Repo secret RELEASE_TOKEN:** {n/a for consumer / pending for publisher}
+**Repo secret NPMPUSHER:** {n/a for consumer / pending for publisher}
+
+## Role
+Added to {workspace_name} on {date} as a {role} via /wasp:cross-pollinate --add-member.
+
+{If consumer:}
+## Plain-mode behavior
+... (same template as OuronetUI's credentials file)
+
+## Cross-pollinate role
+Listed in `.wasp/cross-pollinate.yml` as `publishes: {false|true}`.
+Edges to workspace packages: {list each edge}
+
+---
+
+**Reset:** delete `.wasp/pollinate-credentials/` to force re-init on next /wasp:pollinate.
+```
+
+Write to `$MEMBER_ABS_PATH/.wasp/pollinate-credentials/pollinate-credentials.md`.
+
+#### M-D.3: `.gitignore` and `.secrets/`
+
+Check `$MEMBER_ABS_PATH/.gitignore` for `.wasp/`, `.bee/`, `.secrets/` entries. If missing, AskUserQuestion whether to add them.
+
+AskUserQuestion:
+```
+question: "Scaffold .secrets/pat.txt with placeholder?",
+options: [
+  "Yes — create empty file and add .secrets/ to .gitignore",
+  "No — I'll add manually before first /wasp:pollinate run",
+  "Already have it set up"
+]
+```
+
+If yes: write empty `.secrets/pat.txt`, ensure `.secrets/` is in `.gitignore`. Remind: "Add your GitHub PAT to `$MEMBER_PATH/.secrets/pat.txt` before running /wasp:pollinate or a cascade."
+
+### Stage M-E: Update workspace config
+
+Append to `$WORKSPACE_ROOT/.wasp/cross-pollinate.yml`:
+
+```yaml
+# Under `repos:`, append:
+  - path: {MEMBER_PATH}
+    publishes: {false if Consumer else true}
+    pollinate_initialized: true
+    branch: {MEMBER_BRANCH}
+    packages: {[] if Consumer else list of declared packages from M-D.1}
+
+# Under `edges:`, append one per entry in $NEW_EDGES:
+  - from: "{pkg}"
+    to: "{member_identifier — either a package name if Both/Publisher and feeds back, OR member_path for Consumer}"
+    to_repo: {MEMBER_PATH}
+    to_field: {dep_type}
+```
+
+Write atomically (temp + rename). Preserve YAML formatting + existing comments.
+
+### Stage M-F: Re-render `.wasp/dep-graph.md`
+
+Invoke the same template logic as Step 0.6.5 (the v1.4.3 dep-graph generator), regenerating from the now-updated `cross-pollinate.yml`. The new member appears as a new node + N new edges in the visualization.
+
+### Stage M-G: Summary + next steps
+
+```
+✅ Added "{MEMBER_PATH}" to {workspace_name} workspace
+
+   Role:               {role}
+   Branch:             {branch}
+   Edges added:        {N} (to {comma-separated package names})
+
+   Files created:
+   {for each file, mark ✅ created}
+     ✅ {MEMBER_PATH}/.wasp/config.json
+     ✅ {MEMBER_PATH}/.wasp/pollinate-credentials/pollinate-credentials.md
+     ✅ {MEMBER_PATH}/.gitignore (added .wasp/ .bee/ .secrets/ if missing)
+     ⚠️  {MEMBER_PATH}/.secrets/pat.txt (scaffolded empty — fill in your GitHub PAT)
+
+   Files updated:
+     ✅ .wasp/cross-pollinate.yml ({prev_repo_count} → {new_repo_count} repos, {prev_edge_count} → {new_edge_count} edges)
+     ✅ .wasp/dep-graph.md (re-rendered)
+
+Next steps:
+   1. Add your GitHub PAT to {MEMBER_PATH}/.secrets/pat.txt
+   {if "Add now" was chosen in M-C for any dep:}
+   2. cd {MEMBER_PATH} && npm install   (to install newly-added @stoachain/* deps)
+   3. Run /wasp:health to validate the new member's setup.
+   {else:}
+   2. Run /wasp:health to validate the new member's setup.
+
+   When you're ready, the next /wasp:cross-pollinate cascade will automatically
+   include {MEMBER_PATH} in consumer dep-pin updates.
+```
+
+Mark state.md `Status: complete`, archive to `.wasp/.archive/state-{run_id}.md`, and exit.
+
+### Wizard error recovery
+
+If any stage fails (user cancels, validation fails, file write fails):
+- Roll back any files created so far IF the user explicitly cancels.
+- If the failure is mid-config-update: leave the partial work, save state to `.wasp/state.md` with `Status: failed` + failure context, suggest manual recovery or `--add-member` re-run after fix.
+- Never leave `cross-pollinate.yml` in a half-written state — write atomically via temp + rename.
 
 ---
 
