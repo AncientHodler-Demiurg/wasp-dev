@@ -254,6 +254,142 @@ Also write `$WORKSPACE_ROOT/.wasp/cross-pollinate-history.md` (empty initial tem
 Each entry below records one cross-pollinate cascade run. Appended by Step 8 of /wasp:cross-pollinate.
 ```
 
+#### Step 0.6.5: Generate `.wasp/dep-graph.md` (human-readable rendering)
+
+Render `$WORKSPACE_CONFIG` as a markdown document containing a visual dependency graph. This is the human-readable companion to `cross-pollinate.yml` — same data, different format. Regenerated on every `--init/--reinit`. Never read by wasp commands (always derived from cross-pollinate.yml); exists purely to help humans understand the workspace at a glance.
+
+Write `$WORKSPACE_ROOT/.wasp/dep-graph.md` with the following structure, populated from `$WORKSPACE_CONFIG.repos` + `$WORKSPACE_CONFIG.edges` + queried current `package.json` versions + current `npm view` versions:
+
+```markdown
+# {workspace_name} dependency graph
+
+**Generated:** {ISO 8601 timestamp} by `/wasp:cross-pollinate --init/--reinit`
+**Source of truth:** `.wasp/cross-pollinate.yml` — this file is the human-readable rendering of the same data.
+**Do not edit directly** — re-run `/wasp:cross-pollinate --reinit` to regenerate from current package.json scans, or `/wasp:health --fix` to re-render from the current yml.
+
+A visual reference for *who depends on what*, *which edges are dependencies vs peer-dependencies*, and *what cascades when each package republishes*.
+
+---
+
+## The layer model — ASCII
+
+{Render each repo as a block. For each repo, list its declared packages. For each
+ package, show its outgoing edges. Arrow notation:
+   ┌── dep ────►    (regular dep, solid arrow)
+   ┌── peerDep ─►   (peer dep, can use "── peerDep ──►" or use the word inline)
+   ┌── devDep ─►    (dev dep, rarely cascades)
+ Group consumer repos (publishes: false) at the bottom of the diagram with
+ "the consumer that satisfies everyone's peerDeps" annotation when applicable.}
+
+(example for a 3-repo workspace with one publisher chain and one consumer)
+                    ┌─── dep ─────► {leaf-pkg} ({version})
+                    │
+   {mid-pkg} ───────┤                  (in {leaf-repo}, branch {branch})
+                    │
+                    └── peerDep ──► {peer-pkg} ({version})   "consumer brings this"
+
+   {consumer-app} ({version}, {branch})
+     ├── dep ───► {peer-pkg}    ┐
+     ├── dep ───► {mid-pkg}     ├── the leaf consumer
+     └── dep ───► (...)         ┘   that satisfies everyone's peerDeps
+
+---
+
+## The layer model — Mermaid (renders natively on GitHub)
+
+```mermaid
+graph TD
+  {for each repo, emit a subgraph block:}
+  subgraph repo_{N}["{repo.path} ({repo.branch} branch)"]
+    {for each package: emit `PKG_ID["{name}<br/>{version}"]`}
+  end
+
+  {for each edge:}
+  {to_id} {arrow_for_type} {from_id}
+    where arrow_for_type is:
+      "-- 'dep' -->" for dependencies
+      "-. 'peerDep' .->" for peerDependencies
+      "-. 'devDep' .->" for devDependencies
+
+  classDef pkg fill:#e8f4f8,stroke:#2e6e8e,color:#000
+  classDef consumer fill:#fff4e6,stroke:#cc7722,color:#000
+  class {publisher_pkg_ids} pkg
+  class {consumer_pkg_ids} consumer
+```
+
+Legend: **solid arrows = `dep`** (consumer auto-installs upstream), **dotted arrows = `peerDep`** (consumer must bring its own copy; ensures one shared instance).
+
+---
+
+## Edges in detail
+
+| # | Upstream | Downstream | In repo | Field | Current pin |
+|---|---|---|---|---|---|
+{one row per edge in $WORKSPACE_CONFIG.edges, in declaration order}
+
+---
+
+## Cascade scenarios — "what happens when X publishes?"
+
+{For each package P where (P is declared in some publisher repo's packages):
+   Emit a "### Scenario: {P} republishes" section.
+   Walk the edge graph starting from P:
+     - For each outgoing edge from P:
+       - If edge.to is a publishable package → it's a candidate cascade hop.
+         The cascade decision depends on edge.to_field:
+           - dep      → cascades automatically (downstream's bundled copy is now stale)
+           - peerDep  → asks per hop (peer-pin range may already cover new version)
+           - devDep   → does not cascade by default
+       - If edge.to is a consumer repo → it gets a chore(deps) commit at Step 7.11.
+     - Recurse: from each cascaded downstream, walk its outgoing edges.
+   Display blast radius: # of repos affected + # of packages that might publish.}
+
+### Scenario: {P} republishes
+
+```
+{P}@{current_version} → {next}
+   │
+   ▼ (edge {N}: {edge.to_field})
+{downstream package} — {will cascade auto / will ask per hop / no cascade}
+   ...
+```
+
+**Repos affected:** {list}
+**Total potential publishes:** {range}
+
+---
+
+## Dep type ⇆ cascade behavior
+
+| Edge type | Architectural meaning | Default cross-pollinate behavior |
+|---|---|---|
+| **`dep`** | Downstream bundles a copy of upstream. New upstream → bundled copy is stale. | Cascades automatically (asked once but typically yes). |
+| **`peerDep`** | Downstream expects consumer to bring upstream. Peer-pin declares compatibility. | **`auto_cascade_peerDeps: {settings.auto_cascade_peerDeps}`** — {if false: "asks per hop"; if true: "auto-cascades unless peer-range already covers"}. |
+| **`devDep`** | Only needed for downstream's build/test. | **`cascade_devDependencies: {settings.cascade_devDependencies}`** — {if false: "never cascades"; if true: "cascades like dep"}. |
+
+In this workspace's {N} edges: **{count_dep} are `dep`**, **{count_peer} are `peerDep`**, **{count_dev} are `devDep`**.
+
+---
+
+## Version state snapshot
+
+| Package | Local version | npm registry version | Drift? |
+|---|---|---|---|
+{for each publishable package across all repos: query `npm view <name> version`, compare against local package.json version, mark "✅ in sync" or "⚠️ local newer (pending publish)" or "⚠️ npm newer (out-of-band release?)"}
+
+{for each consumer repo: list as "(not published)" with current local version from package.json}
+
+---
+
+## Reading this file vs reading `cross-pollinate.yml`
+
+- **`cross-pollinate.yml`** is the machine-readable source of truth. wasp commands parse it.
+- **`dep-graph.md`** (this file) is the human-readable rendering. Regenerated on every `--init/--reinit`. Never edit by hand — re-run `/wasp:cross-pollinate --reinit` to refresh from current package.json scans, or `/wasp:health --fix` if you just want to re-render the visualization from the current yml.
+- `/wasp:health` Check W4.5 catches divergence between these two files (mtime comparison) and offers auto-regeneration under `--fix`.
+```
+
+The rendering instructions above are intentionally embedded in the output template — when the LLM running this command generates dep-graph.md, it substitutes the curly-braced placeholders with concrete values from `$WORKSPACE_CONFIG`. The ASCII art, Mermaid block, edge table, cascade scenarios, and version snapshot are all derived from data the command already holds.
+
 Ensure `.wasp/` is gitignored at the workspace level. If `$WORKSPACE_ROOT/.gitignore` is not present OR does not contain `.wasp/`, AskUserQuestion whether to add it.
 
 #### Step 0.7: Bootstrap final summary
@@ -495,6 +631,27 @@ The final plan, ready for the user to approve before execution:
 🐝 Cross-pollinate plan — workspace "{workspace_name}"
 
 Mode: {dry-run | execute | batch-approve}
+
+Affected dep subgraph (edges this cascade will traverse):
+
+  {Render only the edges where edge.from OR edge.to is in $EXECUTION_ORDER.
+   Use the same arrow notation as dep-graph.md but highlight version transitions:
+
+   {from_pkg}@{old} → @{new}  ──{edge_type}──►  {to_pkg}@{old} → @{new}    [repin: {old_pin} → {new_pin}]
+
+   For edges feeding into consumer repos, mark them "[consumer repin only — no publish]".
+
+   For edges in $CFG.edges that DON'T participate in this cascade,
+   show as a single summary line:
+       (omitted: {N} other edges — see .wasp/dep-graph.md for full graph)
+  }
+
+  Example:
+    stoa-core@4.2.0 → @4.3.0  ──dep──►  (no in-queue downstream via dep)
+    stoa-core@4.2.0 → @4.3.0  ──peerDep──►  ouronet-core@4.2.0 → @4.2.1    [repin: 4.2.0 → 4.3.0]
+    stoa-core@4.2.0 → @4.3.0  ──dep──►  OuronetUI  [consumer repin only — no publish]
+    ouronet-core@4.2.0 → @4.2.1  ──dep──►  OuronetUI  [consumer repin only — no publish]
+    (omitted: 4 other edges — see .wasp/dep-graph.md for full graph)
 
 Will publish ({M} packages, serially in topo order):
   [1/M] @stoachain/stoa-core       v4.2.0 → v4.3.0    in stoa-js          (code-changed)

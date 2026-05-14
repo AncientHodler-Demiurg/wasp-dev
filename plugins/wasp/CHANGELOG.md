@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.4.3] - 2026-05-14 — Auto-generated `.wasp/dep-graph.md` + cascade subgraph visualization
+
+The dependency graph lived only as a flat YAML edge list inside `cross-pollinate.yml`. v1.4.3 surfaces it as a human-readable markdown artifact (`dep-graph.md`) — ASCII layer model, Mermaid diagram, edge table, cascade scenarios, version snapshot — generated on every `--init/--reinit` and kept in sync via a new health check.
+
+### Added
+
+- **`/wasp:cross-pollinate` Step 0.6.5 — `.wasp/dep-graph.md` generation.** After writing `cross-pollinate.yml`, also write `dep-graph.md` populated from `$WORKSPACE_CONFIG.repos`, `$WORKSPACE_CONFIG.edges`, current `package.json` versions, and `npm view` registry queries. Contains:
+  - **ASCII layer model** — block-diagram view, one block per repo, packages and their outgoing edges with `dep`/`peerDep`/`devDep` annotations
+  - **Mermaid diagram** — same graph in Mermaid syntax (renders on GitHub PR descriptions, GitLab, Obsidian, etc.)
+  - **Edge table** — flat list with field, current pin, and one row per edge from `cross-pollinate.yml`
+  - **Cascade scenarios** — for each publishable package, walk the dep-graph and show "what happens when X republishes?" including repos affected and total potential publish count
+  - **Version state snapshot** — local package.json version vs npm registry version per package, with drift detection
+  - **Source-of-truth note** — explicit "do not edit by hand, re-run --reinit" with pointer to `/wasp:health --fix` for re-rendering without re-inference
+
+- **`/wasp:cross-pollinate --dry-run` Step 6 — Affected dep subgraph preview.** Before the "Will publish" list, render only the edges this cascade will traverse, with `{from}@{old} → @{new}` and `{to}@{old} → @{new}` transitions highlighted. Non-participating edges shown as a single summary line pointing at `.wasp/dep-graph.md`. Makes the cascade plan visually graspable in seconds rather than parsing a YAML edge list mentally.
+
+- **`/wasp:health` Check W4.5 — `dep-graph.md` rendering up-to-date.** Compares mtime of `dep-graph.md` against `cross-pollinate.yml`. WARN if dep-graph.md is older (stale rendering) or missing entirely. WARN-only because drift here is cosmetic, not functional. Auto-fixable under `--fix` mode: re-renders dep-graph.md from current cross-pollinate.yml without re-inferring edges (faster than `--reinit`).
+
+### Design rationale
+
+`cross-pollinate.yml` is the machine-readable single source of truth — wasp commands parse it. `dep-graph.md` is a one-way derivation purely for human inspection. By treating it as derived data (never read by commands, always regenerated from yml), we get:
+- No risk of dep-graph.md and yml disagreeing on edge structure (yml always wins).
+- Free re-renders on every `--init/--reinit` — the graph view never goes stale silently.
+- Health check W4.5 catches the edge case where user hand-edits yml (which is supported) without re-rendering.
+- Easy markdown rendering on GitHub — Mermaid block renders natively in PR descriptions, issues, and `.md` files browsed in the GitHub UI.
+
+### Wasp now has 8 commands (unchanged from v1.4.2)
+
+The commands are the same set — v1.4.3 enriches three of them rather than adding new ones.
+
+---
+
 ## [1.4.2] - 2026-05-14 — `/wasp:health`, `/wasp:forensics`, `/wasp:debug` (wasp-side diagnostic trio)
 
 Adds three new diagnostic commands that fill the gap bee covers with its `/bee:health` + `/bee:forensics` + `/bee:debug` trio. Wasp's data shape is different from bee's (state.md per command, `.wasp/.archive/`, cross-pollinate workspace config), so these are wasp-specific equivalents — same intent + structure, different data sources.

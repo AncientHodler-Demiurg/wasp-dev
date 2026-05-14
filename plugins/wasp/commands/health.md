@@ -59,6 +59,12 @@ Execute each check in order. For each, record a status (**PASS** / **WARN** / **
 - WARN: cross-pollinate.yml declares an edge that doesn't exist in package.json (stale graph) → "Edge `{from} → {to}` in cross-pollinate.yml not found in `{to_repo}/<dir>/package.json`. Run `--reinit` to refresh."
 - WARN: package.json has a dep on a workspace-published package not declared as an edge (missing graph entry) → "`{to_repo}` depends on `{from}` but no edge declared. Run `--reinit` to re-infer."
 
+**Check W4.5 — `.wasp/dep-graph.md` is up-to-date with `cross-pollinate.yml`:**
+- If `dep-graph.md` does not exist → WARN: "`.wasp/dep-graph.md` is missing. Run `/wasp:cross-pollinate --reinit` to generate it, or `/wasp:health --fix` to re-render from the current cross-pollinate.yml without re-inferring edges."
+- If `dep-graph.md` exists AND its mtime is OLDER than `cross-pollinate.yml`'s mtime → WARN: "`dep-graph.md` is stale (cross-pollinate.yml modified after the rendering). Run `/wasp:health --fix` to re-render."
+- PASS: file exists AND its mtime is ≥ cross-pollinate.yml's mtime
+- Note: dep-graph.md is a human-readable rendering only. Wasp commands never READ it — they always derive from cross-pollinate.yml. Drift here is cosmetic, not functional, so this check is WARN-only (never FAIL).
+
 **Check W5 — No orphaned workspace `.wasp/state.md` in active slot:**
 - Read `<workspace_root>/.wasp/state.md` if present. Parse `**Status:**` and `**Last update:**` fields.
 - PASS: file absent (no in-flight cascade), OR status is `complete` (archived state, but file should have been moved), OR status is in-flight AND `Last update` is within the last 24h (recent — likely a real run that was interrupted, not orphaned)
@@ -153,6 +159,7 @@ Workspace checks ({W1-W5}, applicable only in workspace mode):
   ✅ W2 — All 3 member repos on disk
   ✅ W3 — Dep graph edges reference valid packages
   ⚠️  W4 — Edge `@stoachain/dalos-crypto → @stoachain/stoa-core` matches reality but version pin in stoa-core/package.json is stale (4.0.3 vs latest 4.0.4 on npm)
+  ✅ W4.5 — dep-graph.md up-to-date with cross-pollinate.yml
   ✅ W5 — No orphaned workspace state.md
 
 ──────────────────────────────────────────────────────
@@ -211,6 +218,7 @@ AskUserQuestion(
 
 Per WARN type, auto-fix actions:
 - **W4 (stale dep edge)**: re-run cross-pollinate's Stage C dep-graph inference, update `.wasp/cross-pollinate.yml`
+- **W4.5 (stale or missing dep-graph.md)**: re-render `.wasp/dep-graph.md` from current `.wasp/cross-pollinate.yml` (uses the same template as cross-pollinate's Step 0.6.5 but does NOT re-infer edges — purely re-renders the existing yml)
 - **W5 / R11 (stale in-flight state.md)**: prompt "archive (move to .archive) or delete?"
 - **R5 (branch mismatch)**: prompt user — either checkout target_branch or update lifecycle.target_branch
 - **R7 stale PAT verification**: re-run pollinate's Stage Bm.5 fast-path validation

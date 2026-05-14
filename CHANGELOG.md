@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.4.3] - 2026-05-14 — Auto-generated `.wasp/dep-graph.md` + cascade subgraph visualization
+
+`wasp` plugin bumped to `1.4.3`. `bee` plugin unchanged at `4.5.1` (vendored upstream).
+
+### Added (via `wasp` plugin)
+
+Three small additions that surface the workspace dependency graph as a human-readable artifact, ending the historical state where the graph lived only as a flat YAML edge list:
+
+- **`/wasp:cross-pollinate --init/--reinit`** now generates `.wasp/dep-graph.md` alongside `cross-pollinate.yml` at the workspace root. The file contains an ASCII layer model, a Mermaid diagram (renders natively on GitHub), an edge table, per-package cascade scenarios ("what happens when X publishes?"), and a version state snapshot (local vs npm). Regenerated on every `--init/--reinit` from current package.json scans. Step 0.6.5 in the command.
+- **`/wasp:cross-pollinate --dry-run`** Step 6 now displays an "Affected dep subgraph" preview before the "Will publish" list — shows only the edges this cascade will traverse, with old→new version transitions highlighted. Edges not participating in the cascade are summarized as a count with a pointer to `.wasp/dep-graph.md` for the full view.
+- **`/wasp:health`** Check W4.5 catches drift between `cross-pollinate.yml` and `dep-graph.md` via mtime comparison. WARN-level only (drift is cosmetic, not functional). Auto-fix under `--fix` re-renders dep-graph.md from current cross-pollinate.yml without re-inferring edges.
+
+### Notes
+- `dep-graph.md` is a one-way derivation from `cross-pollinate.yml` — wasp commands never read it back. If you want to change edges, edit `cross-pollinate.yml` (or run `--reinit`), not dep-graph.md.
+- The 16th health check (W4.5) brings the total to 5 workspace checks + 12 per-repo checks.
+
+### Unchanged
+- `bee` plugin pristine at 4.5.1.
+
+---
+
 ## [1.4.2] - 2026-05-14 — `/wasp:health`, `/wasp:forensics`, `/wasp:debug`
 
 `wasp` plugin bumped to `1.4.2`. `bee` plugin unchanged at `4.5.1` (vendored upstream).
