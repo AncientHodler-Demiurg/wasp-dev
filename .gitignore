@@ -14,3 +14,6 @@ plugins/bee/dashboard/.vite/
 # Local secrets (PAT for pushing to this fork)
 .secrets/
 
+# Wasp local workflow state (not used inside this plugin repo, ignored for consistency with workspace projects)
+.wasp/
+
