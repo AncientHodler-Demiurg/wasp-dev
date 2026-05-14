@@ -1958,13 +1958,14 @@ PowerShell 7+ handles this without the `[string]` cast, but pollinate targets th
 Pollinate writes this per-repo file at Step 3.7 (after the publish plan is approved) and updates it at every gate transition through the pipeline. Archived to `.wasp/.archive/state-{run_id}.md` on successful completion. Stays in place on failure for `--resume`.
 
 ```markdown
-# Pollinate state — {repo_name}
+# Wasp state — {repo_name}
 
+**Command:** pollinate
 **Run ID:** 2026-05-14T15:30:00Z
 **Status:** ci-waiting
 **Started:** 2026-05-14T15:30:00Z
 **Last update:** 2026-05-14T15:42:18Z
-**Pollinate version:** 1.4.0
+**Wasp plugin version:** 1.4.1
 **HEAD at start:** abc1234567890...
 **Mode:** interactive
 

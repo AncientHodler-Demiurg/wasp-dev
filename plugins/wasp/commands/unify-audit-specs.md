@@ -7,6 +7,7 @@ argument-hint: "[--slug <name>] [--dry-run]"
 
 Read these files using the Read tool:
 - `.bee/STATE.md` — if not found: NOT_INITIALIZED
+- `.wasp/state.md` — if not found: NO_PRIOR_RUN. If found with `**Status:**` other than `complete` → previous wasp command may not have finished cleanly. Display warning before proceeding.
 
 ## Audit-Specs Inventory (load before proceeding)
 
@@ -24,6 +25,55 @@ You are running `/wasp:unify-audit-specs` — the audit-spec consolidation comma
 The mega-bundle organizes the consumed audit-specs into **milestones** — each milestone is a thematic shipping unit (severity tier + additive/breaking classification) that maps to one release version. The user can later choose to spec all milestones together (one giant spec) or one milestone at a time (multiple ship cycles); milestone-awareness is a pure-markdown convention inside the discussion document, requiring zero changes to `/bee:new-spec`.
 
 This command is **destructive in scope but reversible**: files are MOVED (not deleted) into a dated folder under `.bee/audit-specs-unified/`. Re-running unify on an empty `.bee/audit-specs/` is a no-op. Each unification produces its own dated folder, so multiple audits over time accumulate as discrete unification artifacts.
+
+### State file protocol (v1.4.1+)
+
+This command writes `.wasp/state.md` per the shared wasp state-file protocol (full schema + lifecycle in `pollinate.md`'s appendix). Lifecycle:
+- **Created** at Step 3 end (after the unification plan is proposed and user-confirmed), `Status: executing`
+- **Updated** through file-move and mega-bundle-write phases
+- **Finalized + archived** at Step 6 (Final Report), `Status: complete` → moved to `.wasp/.archive/state-{run_id}.md`
+- **Stays in active slot on failure** for inspection
+
+Schema (unify-audit-specs variant):
+
+```markdown
+# Wasp state — {repo_name}
+
+**Command:** unify-audit-specs
+**Run ID:** {ISO 8601 timestamp}
+**Status:** {scanning | proposing | moving | synthesizing | complete | failed}
+**Started:** ...
+**Last update:** ...
+**Wasp plugin version:** 1.4.1
+**Unification folder:** .bee/audit-specs-unified/{date}-{slug}/
+
+## Inventory consumed
+
+| Source | Count |
+|---|---|
+| Loose top-level files in .bee/audit-specs/ | N |
+| Files inside existing bundles/ subfolders | M |
+| Existing bundle folders moved whole | K |
+
+## Milestones in mega-bundle
+
+| Milestone | Source files | Description |
+|---|---|---|
+| 1 — high-additive | 6 | ... |
+| 2 — medium-additive | 4 | ... |
+
+## Actions executed
+
+| Step | Result |
+|---|---|
+| Create unification folder | ✅ .bee/audit-specs-unified/2026-05-14-foo/ |
+| Move loose files into folder | ✅ N files |
+| Move bundle folders into folder | ✅ K folders |
+| Write _unified.md mega-bundle | ✅ |
+
+## Run history
+- ...
+```
 
 ### Step 1: Validation Guards
 
@@ -220,6 +270,8 @@ If "Adjust milestones first": present a substep menu (re-classify a HIGH spec, m
 If `--dry-run` was passed in `$ARGUMENTS`, display the proposal and the would-be target path, then stop without writing or moving files.
 
 ### Step 4: Move source files into the unification folder
+
+**Write initial `.wasp/state.md`** with the schema documented in the State file protocol section above. Populate `## Inventory consumed` from the plan, set `**Status:** moving`. Update as moves complete; transition to `**Status:** synthesizing` when the mega-bundle starts being written in Step 5.
 
 The unification folder is the new home for everything in `.bee/audit-specs/`. The move is atomic per-item; partial failures are surfaced.
 
@@ -462,6 +514,13 @@ AskUserQuestion(
 - **Run /bee:new-spec**: invoke `/bee:new-spec --from-discussion .bee/audit-specs-unified/{date}-{slug}/_unified.md`
 - **Inspect**: Read the file and display its overview section + milestone headings
 - **Stay here**: end command
+
+**Finalize `.wasp/state.md`** per the State file protocol: set `**Status:** complete`, append a final `## Run history` entry summarising the unification (files consumed, milestones created, target folder), then archive:
+
+```bash
+mkdir -p .wasp/.archive
+mv .wasp/state.md .wasp/.archive/state-${RUN_ID}.md
+```
 
 ---
 

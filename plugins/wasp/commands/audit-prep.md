@@ -7,6 +7,7 @@ argument-hint: "[--auto]"
 
 Read these files using the Read tool:
 - `.bee/STATE.md` — if not found: NOT_INITIALIZED
+- `.wasp/state.md` — if not found: NO_PRIOR_RUN. If found, parse `**Status:**` — if `complete` or absent → safe to ignore; if any in-flight value → previous wasp command may not have finished cleanly. Display warning and offer to inspect/archive before proceeding.
 
 ## Audit-Specs Inventory (load before proceeding)
 
@@ -25,6 +26,48 @@ If `.bee/audit-specs/` does not exist, mark `NO_AUDIT_SPECS_DIR`.
 You are running `/wasp:audit-prep` — the **pre-audit safety check** command. Run this **before** `/bee:audit` to ensure `.bee/audit-specs/` is in a clean, unambiguous state. Without this check, leftover files from a prior audit cycle can mix with newly-generated files from a fresh `/bee:audit-to-spec` run, making it impossible to distinguish "this was from the 2026-04-29 audit" vs "this was from the 2026-06-15 audit".
 
 The command **does not** run the actual audit — that's `/bee:audit`'s job. This is purely a state check + cleanup helper. Think of it as `/bee:audit`'s preflight inspection.
+
+### State file protocol (v1.4.1+)
+
+This command writes `.wasp/state.md` per the shared wasp state-file protocol (full schema + lifecycle in `pollinate.md`'s appendix). Audit-prep is a fast operation (seconds, not minutes), so state.md serves primarily as an audit trail rather than a resume source. Lifecycle:
+- **Created** at the start of Step 2 (after inventory + classify computes), `Status: classifying`
+- **Updated** once at Step 4 transition to execution, `Status: executing`
+- **Finalized + archived** at Step 6 end (Final Report), `Status: complete` → moved to `.wasp/.archive/state-{run_id}.md`
+- **Stays in active slot on failure** for inspection
+
+Schema (audit-prep variant):
+
+```markdown
+# Wasp state — {repo_name}
+
+**Command:** audit-prep
+**Run ID:** {ISO 8601 timestamp}
+**Status:** {classifying | proposing | executing | complete | failed}
+**Started:** ...
+**Last update:** ...
+**Wasp plugin version:** 1.4.1
+
+## Inventory
+
+| Category | Count | Notes |
+|---|---|---|
+| archived | N | already in `.bee/archive/<spec>/requirements.md` |
+| in-flight | M | currently in `.bee/specs/<spec>/requirements.md` |
+| unprocessed | K | not in archive nor specs — stale or never specced |
+| mis-placed | P | duplicates / shouldn't be in audit-specs/ at all |
+
+## Actions executed
+
+| Path | Action | Result |
+|---|---|---|
+| .bee/audit-specs/foo.md | archived → .bee/audit-specs-done/2026-05-14/foo.md | ✅ moved |
+| .bee/audit-specs/bar.md | (kept in place — in-flight spec being processed) | ⏸ skipped |
+
+## Run history
+- {timestamp} STARTED
+- {timestamp} inventory complete: {N+M+K+P} files classified
+- {timestamp} executed {Q} actions
+```
 
 ### Step 1: Validation Guards
 
@@ -115,6 +158,8 @@ Status legend:
   archived      — the spec from this source is already archived; this should be filed to audit-specs-done/
   mis-placed    — already in audit-specs-unified/; the file in audit-specs/ is a stale duplicate
 ```
+
+**Write initial `.wasp/state.md`** with the schema documented in the State file protocol section above. Populate `## Inventory` table from the classification counts. `**Status:** classifying` → flip to `proposing` after this write.
 
 ### Step 3: Recommend Actions
 
@@ -305,6 +350,13 @@ Status: {Fully clean ✓ | Stale-archived ✓ | Blocked ✗ | User-deferred ⚠}
   ⚠ {N_c} unprocessed item(s) remain at top level. The next /bee:audit-to-spec
     will write new files alongside them — they will visually mix until a future
     cleanup. Re-invoke /wasp:audit-prep at any time to reclassify.
+```
+
+**Finalize `.wasp/state.md`** per the State file protocol: append the executed actions to the `## Actions executed` table, set `**Status:** complete`, append a final `## Run history` entry, then archive:
+
+```bash
+mkdir -p .wasp/.archive
+mv .wasp/state.md .wasp/.archive/state-${RUN_ID}.md
 ```
 
 Then offer the exit menu:

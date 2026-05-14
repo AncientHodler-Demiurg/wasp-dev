@@ -6,6 +6,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.4.1] - 2026-05-14 — `.wasp/state.md` extended to ALL wasp commands
+
+v1.4.0 introduced `.wasp/state.md` for `/wasp:pollinate` only. v1.4.1 extends the same protocol to the other four wasp commands so every wasp invocation leaves a persistent state-file trail.
+
+### Added
+
+- **`/wasp:audit-prep`** now writes `.wasp/state.md` per-repo at Step 2 (after classification) and finalizes + archives at Step 6. State.md captures: inventory counts per category, executed actions table, run history. Useful as audit trail (the command itself is fast — state.md is not primarily for resume).
+
+- **`/wasp:bundle-audit-specs`** now writes `.wasp/state.md` per-repo at Step 4 (after bundle plan approval) and finalizes + archives at Step 6. State.md captures: proposed bundles table, per-bundle execution results, run history.
+
+- **`/wasp:unify-audit-specs`** now writes `.wasp/state.md` per-repo at Step 4 (when moves begin) and finalizes + archives at Step 6. State.md captures: inventory consumed, milestones in mega-bundle, per-step execution results, run history. Status transitions: `scanning → proposing → moving → synthesizing → complete`.
+
+- **`/wasp:cross-pollinate`** state file **migrated from JSON to markdown**. Previously `<workspace>/.wasp/cross-pollinate-state.json` (JSON). Now `<workspace>/.wasp/state.md` (markdown — same format as all other wasp commands). The cascade state — execution order, per-package status, pending consumer pin updates, run history, failure context — is expressed as markdown tables. Cleanup step also updated: on Step 9 success, state.md is archived (not deleted) to `<workspace>/.wasp/.archive/state-{run_id}.md` for historical reference.
+
+- **Unified schema header across all wasp commands.** Every state.md now starts with:
+  ```markdown
+  # Wasp state — {repo_or_workspace_name}
+
+  **Command:** {pollinate | audit-prep | bundle-audit-specs | unify-audit-specs | cross-pollinate}
+  **Run ID:** ...
+  **Status:** ...
+  ...
+  ```
+  Pollinate's existing schema (v1.4.0) was updated to match — header changed from `# Pollinate state — {repo_name}` to `# Wasp state — {repo_name}` with `**Command:** pollinate` added.
+
+- **In-flight collision detection.** Every wasp command's "Current State" load now reads `.wasp/state.md` and warns if a previous run from a different (or same) wasp command is still marked in-flight. Prevents accidentally clobbering an interrupted command's state.
+
+### Changed
+
+- `cross-pollinate.md` — every `.wasp/cross-pollinate-state.json` reference renamed to `.wasp/state.md`. Step 7.10's state-write switched from JSON shape to markdown tables. Step 9 cleanup switched from "delete on success" to "archive on success" (consistent with pollinate's behavior).
+
+### Notes
+
+- **Audit-spec commands aren't primarily resume targets.** They run in seconds (file moves). Their state.md serves as audit trail more than as a resume source. No `--resume` flag for these commands in v1.4.1.
+- **Cross-pollinate already had --resume from v1.2.0.** Behavior unchanged; just the storage format moved from JSON to markdown.
+- **Backwards compat for cross-pollinate state file migration.** If a `.wasp/cross-pollinate-state.json` from v1.2.0/v1.3.x exists (from a prior failed cascade), cross-pollinate v1.4.1's Step 0.1 detection will not find a `.wasp/state.md` and will treat the workspace as not-resumable. User can manually delete the orphaned `.wasp/cross-pollinate-state.json` or re-run with `--reinit`. In practice, no one has yet run cross-pollinate against the live StoaOuronet workspace, so this migration path is theoretical.
+
+### Deferred to v1.4.2
+
+- `/wasp:debug`, `/wasp:forensics`, `/wasp:health` commands — wasp-side parallels of bee's debug commands. Will inspect state.md files, archive history, cross-pollinate-history.md, and per-repo pollinate state to diagnose issues across the workspace.
+
+---
+
 ## [1.4.0] - 2026-05-14 — `/wasp:pollinate` state file + `--resume` support
 
 Adds explicit progress tracking and resumability to `/wasp:pollinate`. Pre-v1.4.0, pollinate relied purely on external-source idempotency (re-querying git/npm/GitHub) for resume-after-failure. That works for correctness but provides no in-tree visibility of progress and no fast resume — the user has no way to inspect "where did pollinate die?" or to re-enter the pipeline at the point of failure without recomputing the queue, re-prompting bump decisions, and re-polling external state.

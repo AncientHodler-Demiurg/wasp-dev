@@ -7,6 +7,7 @@ argument-hint: "[--dry-run]"
 
 Read these files using the Read tool:
 - `.bee/STATE.md` — if not found: NOT_INITIALIZED
+- `.wasp/state.md` — if not found: NO_PRIOR_RUN. If found with `**Status:**` other than `complete` → previous wasp command may not have finished cleanly. Display warning before proceeding.
 
 ## Audit-Specs Inventory (load before proceeding)
 
@@ -27,6 +28,45 @@ After this command runs, the user has three composition options:
 1. **Run `/wasp:unify-audit-specs` next** — consolidates the bundles + any remaining loose files into one mega-bundle `.md`. Useful when the user still wants the master-plan view but appreciates that bundles were pre-curated.
 2. **Run `/bee:new-spec --from-discussion .bee/audit-specs/bundles/<theme>/_bundle.md` per bundle** — process each bundle as its own spec, ship/archive separately. Multiple ship cycles, multiple releases. Recommended for large audits where one mega-spec would be too long.
 3. **Mix**: process some bundles individually, then unify the rest later.
+
+### State file protocol (v1.4.1+)
+
+This command writes `.wasp/state.md` per the shared wasp state-file protocol (full schema + lifecycle in `pollinate.md`'s appendix). Lifecycle:
+- **Created** at Step 3 end (after the bundle plan is proposed and user-confirmed), `Status: executing`
+- **Updated** if the command processes multiple bundles sequentially (each bundle creation → state.md update)
+- **Finalized + archived** at Step 6 (Final Report), `Status: complete` → moved to `.wasp/.archive/state-{run_id}.md`
+- **Stays in active slot on failure** for inspection
+
+Schema (bundle-audit-specs variant):
+
+```markdown
+# Wasp state — {repo_name}
+
+**Command:** bundle-audit-specs
+**Run ID:** {ISO 8601 timestamp}
+**Status:** {scanning | proposing | executing | complete | failed}
+**Started:** ...
+**Last update:** ...
+**Wasp plugin version:** 1.4.1
+
+## Proposed bundles
+
+| Bundle theme | Files | Estimated phases |
+|---|---|---|
+| high-additive | 6 | 3 |
+| medium-additive | 4 | 2 |
+| low-noise | 3 | 1 |
+
+## Actions executed
+
+| Bundle | Files moved | _bundle.md written | Result |
+|---|---|---|---|
+| bundles/high-additive/ | 6 | ✅ | ✅ created |
+| bundles/medium-additive/ | 4 | ✅ | ✅ created |
+
+## Run history
+- ...
+```
 
 This command pairs cleanly with `/wasp:unify-audit-specs` — that command's Step 2c already handles existing bundle folders by treating each as a milestone.
 
@@ -235,6 +275,8 @@ If `--dry-run` was passed in `$ARGUMENTS`, display the proposal and stop without
 
 ### Step 4: Create Bundle Folders + Move Consumed Originals
 
+**Write initial `.wasp/state.md`** with the schema documented in the State file protocol section above. Populate the `## Proposed bundles` table from the plan, set `**Status:** executing`. Update the file once per bundle as each completes.
+
 For each approved bundle:
 
 ```bash
@@ -411,6 +453,13 @@ Next steps:
 
   Option C — process a remaining loose file directly:
     /bee:new-spec --from-discussion .bee/audit-specs/{loose-file}.md
+```
+
+**Finalize `.wasp/state.md`** per the State file protocol: set `**Status:** complete`, append a final `## Run history` entry summarising bundles created, then archive:
+
+```bash
+mkdir -p .wasp/.archive
+mv .wasp/state.md .wasp/.archive/state-${RUN_ID}.md
 ```
 
 Then the exit menu:

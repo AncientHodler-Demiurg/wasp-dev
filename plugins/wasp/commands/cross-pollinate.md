@@ -8,7 +8,7 @@ argument-hint: "[--init] [--dry-run] [--execute] [--batch-approve] [--resume] [-
 Read these files using the Read tool:
 - The CWD, walking UP looking for `.wasp/cross-pollinate.yml`. The first directory containing it is the **workspace root**. If not found within 5 levels up from CWD, treat as NOT_INITIALIZED.
 - `.wasp/cross-pollinate.yml` at workspace root — if not found: NOT_INITIALIZED.
-- `.wasp/cross-pollinate-state.json` at workspace root — if not found: NO_STATE (fresh run).
+- `.wasp/state.md` at workspace root — if not found: NO_STATE (fresh run).
 - `.wasp/cross-pollinate-history.md` at workspace root — if not found: NO_HISTORY.
 
 ## Git Status across the workspace (load before proceeding)
@@ -23,7 +23,7 @@ For EACH member repo declared in `.wasp/cross-pollinate.yml` (or detected by Sta
 
 You are running `/wasp:cross-pollinate` — the cross-repository cascade publisher. This command orchestrates `/wasp:pollinate` across a workspace of linked repositories. Where `/wasp:pollinate` handles ONE repo's publish ceremony (with multi-package monorepo awareness since v1.1.0), `/wasp:cross-pollinate` handles the ACROSS-REPOS coordination: when repo A republishes a package and repo B peer-deps on it, this command bumps repo B's dep pin, republishes repo B, then continues down the dependency graph until quiescence.
 
-This command is **idempotent** + **resumable**: every executed step is recorded in `.wasp/cross-pollinate-state.json`. Re-running with `--resume` picks up from the last incomplete step. Safe to re-run after partial failures.
+This command is **idempotent** + **resumable**: every executed step is recorded in `.wasp/state.md`. Re-running with `--resume` picks up from the last incomplete step. Safe to re-run after partial failures.
 
 This command **delegates per-package work to `/wasp:pollinate`** rather than re-implementing it. Cross-pollinate adds the workspace-level state machine: dependency-graph traversal, topological sort, serial execution with downstream dep-pin updates between hops, and per-package live ✅ polling at every cascade step.
 
@@ -35,7 +35,7 @@ Before anything else, dispatch on `$ARGUMENTS`:
 
 - `--init` → force re-bootstrap (Stage A→E). Existing `.wasp/cross-pollinate.yml` is archived to `.wasp/.archive/cross-pollinate-{ISO8601}.yml` before overwrite.
 - `--reinit` → alias for `--init`.
-- `--resume` → load `.wasp/cross-pollinate-state.json` and continue from the recorded `$next_step` field. Skips Stage A, Steps 1-6 if those are already marked complete in state.
+- `--resume` → load `.wasp/state.md` and continue from the recorded `$next_step` field. Skips Stage A, Steps 1-6 if those are already marked complete in state.
 - `--dry-run` → run the full pipeline (Steps 1-6) but halt before Step 7 (EXECUTE). Prints the cascade plan in full. **Mandatory for first runs** unless `--execute` is explicitly passed.
 - `--execute` → opt out of the dry-run-first safety. Required after the first successful dry-run.
 - `--batch-approve` → present the cascade plan once after Step 6 and proceed through Step 7 without per-step prompts. AskUserQuestion checkpoints are skipped within Step 7 unless something fails.
@@ -310,7 +310,7 @@ $CFG = {
   repos: $WORKSPACE_CONFIG.repos,
   edges: $WORKSPACE_CONFIG.edges,
   settings: $WORKSPACE_CONFIG.settings,
-  state_path: $WORKSPACE_ROOT/.wasp/cross-pollinate-state.json,
+  state_path: $WORKSPACE_ROOT/.wasp/state.md,
   history_path: $WORKSPACE_ROOT/.wasp/cross-pollinate-history.md,
 }
 ```
@@ -659,29 +659,51 @@ Display:
 
 #### 7.10 Mark state + advance
 
-Update `.wasp/cross-pollinate-state.json`:
+Update `<workspace_root>/.wasp/state.md` per the shared wasp state-file protocol (v1.4.1+). Cross-pollinate uses markdown for consistency with all other wasp commands:
 
-```json
-{
-  "run_id": "{ISO timestamp at run start}",
-  "started_at": "...",
-  "execution_order": ["@stoachain/stoa-core", "@stoachain/ouronet-core"],
-  "completed_packages": [
-    {
-      "name": "@stoachain/stoa-core",
-      "next_version": "4.3.0",
-      "tag_name": "v4.3.0",
-      "release_url": "...",
-      "npm_url": "...",
-      "completed_at": "..."
-    }
-  ],
-  "next_package_index": 1,
-  "consumer_pin_updates_pending": [...]
-}
+```markdown
+# Wasp state — {workspace_name}
+
+**Command:** cross-pollinate
+**Run ID:** {ISO 8601 timestamp at run start}
+**Status:** executing
+**Started:** ...
+**Last update:** {timestamp updated on every transition}
+**Wasp plugin version:** 1.4.1+
+**HEAD at start (per repo):**
+- stoa-js: {sha}
+- DALOS_Crypto: {sha}
+- OuronetUI: {sha}
+**Mode:** {interactive | batch-approve | dry-run}
+
+## Execution order
+
+| # | Package | Repo | From → To | Tag | Status | Started | Completed |
+|---|---|---|---|---|---|---|---|
+| 1 | @stoachain/stoa-core | stoa-js | 4.2.0 → 4.3.0 | v4.3.0 | ✅ complete | 2026-05-14T15:30:00Z | 2026-05-14T15:34:32Z |
+| 2 | @stoachain/ouronet-core | stoa-js | 4.2.0 → 4.2.1 | v4.3.0 | ⏳ in-flight | 2026-05-14T15:34:35Z | — |
+
+## Pending consumer pin updates
+
+| Consumer Repo | Package | Old Pin → New Pin | Applied? |
+|---|---|---|---|
+| OuronetUI | @stoachain/stoa-core | 4.2.0 → 4.3.0 | ⏳ pending (Step 7.11) |
+| OuronetUI | @stoachain/ouronet-core | 4.2.0 → 4.2.1 | ⏳ pending |
+
+## Run history
+
+- 2026-05-14T15:25:00Z STARTED — mode: interactive
+- 2026-05-14T15:25:32Z user approved cascade plan
+- 2026-05-14T15:25:35Z entered EXECUTE — package 1/2 starting
+- 2026-05-14T15:34:32Z [1/2] @stoachain/stoa-core@4.3.0 COMPLETE
+- 2026-05-14T15:34:35Z entered EXECUTE — package 2/2 starting
+
+## Failure context
+
+(empty — no failure recorded for current run)
 ```
 
-Resume-safe: if cross-pollinate crashes between packages, `--resume` reads this state and continues from `next_package_index`.
+Write atomically (tmp file + rename). Resume-safe: if cross-pollinate crashes between packages, `--resume` reads this state.md, drift-checks each repo's HEAD against the recorded "HEAD at start (per repo)" values, then continues at the first `⏳` row in `## Execution order`.
 
 #### 7.11 After all queued packages complete — consumer commits
 
@@ -774,9 +796,14 @@ Append to `.wasp/cross-pollinate-history.md`:
 
 ### Step 9: Cleanup
 
-If the run completed successfully AND `--resume` was not used: delete `.wasp/cross-pollinate-state.json` (state was only needed for resume).
+If the run completed successfully: mark `**Status:** complete` in state.md, append a final `## Run history` entry, then **archive** (don't delete — the archive is the historical record):
 
-If the run failed: keep `.wasp/cross-pollinate-state.json` for `--resume` to use.
+```bash
+mkdir -p .wasp/.archive
+mv .wasp/state.md .wasp/.archive/state-${RUN_ID}.md
+```
+
+If the run failed: keep `.wasp/state.md` in active slot for `--resume` to use. Populate `## Failure context` section with failing package + step + error excerpt + recovery hint.
 
 Display:
 
@@ -831,37 +858,72 @@ settings:
 
 ## State file schema
 
-`.wasp/cross-pollinate-state.json` (transient; written during execution; deleted on success unless --resume was used):
+`<workspace_root>/.wasp/state.md` — workspace-level state file (markdown, v1.4.1+). Written during execution; archived to `.wasp/.archive/state-{run_id}.md` on Step 9 cleanup if the run completes successfully. Stays in place on failure for `--resume`.
 
-```json
-{
-  "run_id": "ISO 8601 timestamp",
-  "started_at": "...",
-  "mode": "dry-run|execute|batch-approve",
-  "execution_order": ["pkg1.name", "pkg2.name", "..."],
-  "completed_packages": [
-    {
-      "name": "...",
-      "next_version": "...",
-      "tag_name": "...",
-      "release_url": "...",
-      "npm_url": "...",
-      "started_at": "...",
-      "completed_at": "..."
-    }
-  ],
-  "next_package_index": 0,
-  "consumer_pin_updates_pending": [
-    {
-      "consumer_repo": "...",
-      "package": "...",
-      "old_pin": "...",
-      "new_pin": "..."
-    }
-  ],
-  "warnings": []
-}
+Cross-pollinate uses markdown (not JSON) since v1.4.1, for consistency with the per-repo state.md format that all other wasp commands use. The data is structured via markdown tables.
+
+```markdown
+# Wasp state — {workspace_name}
+
+**Command:** cross-pollinate
+**Run ID:** 2026-05-14T15:25:00Z
+**Status:** {planning | scanning | closing | sorting | executing | consumer-commits | complete | failed}
+**Started:** 2026-05-14T15:25:00Z
+**Last update:** 2026-05-14T15:34:35Z
+**Wasp plugin version:** 1.4.1
+**Mode:** {interactive | batch-approve | dry-run}
+
+**HEAD at start (per repo):**
+- stoa-js: {full sha}
+- DALOS_Crypto: {full sha}
+- OuronetUI: {full sha}
+
+## Execution order
+
+One row per queued package, in topo-sorted order. `Status` column uses ⏳/✅/❌ markers. `Started` and `Completed` timestamps populated as the cascade progresses.
+
+| # | Package | Repo | From → To | Tag | Status | Started | Completed |
+|---|---|---|---|---|---|---|---|
+| 1 | @scope/foo | stoa-js | 4.2.0 → 4.3.0 | v4.3.0 | ✅ complete | ... | ... |
+| 2 | @scope/bar | stoa-js | 4.2.0 → 4.2.1 | v4.3.0 | ⏳ in-flight | ... | — |
+
+## Pending consumer pin updates
+
+Dep-pin updates that will be applied to non-publishing consumer repos (Step 7.11), batched as one commit per consumer repo.
+
+| Consumer Repo | Package | Old Pin → New Pin | Applied? |
+|---|---|---|---|
+| OuronetUI | @scope/foo | 4.2.0 → 4.3.0 | ⏳ pending |
+| OuronetUI | @scope/bar | 4.2.0 → 4.2.1 | ⏳ pending |
+
+## Run history
+
+Append-only event log. Each entry: `{timestamp} {event description}`.
+
+- 2026-05-14T15:25:00Z STARTED — mode: interactive
+- ...
+
+## Failure context
+
+Empty on success; populated on failure with failing package + step + error excerpt + recovery hint.
+
+(empty)
 ```
+
+### Resume semantics
+
+`--resume` reads this file and:
+1. Confirms `Status != complete` (otherwise warns and falls back to fresh run)
+2. Drift-checks each repo's current HEAD against `HEAD at start (per repo)` — halts if drift detected
+3. Reconstructs `$EXECUTION_ORDER` and `$DEP_PIN_UPDATES` from the tables
+4. Skips Steps 1-6 (already done) and jumps to the first `⏳ in-flight` row in `## Execution order`
+5. Within that row, delegates to the per-repo pollinate's resume logic (each pollinate sub-invocation also has its own per-repo `.wasp/state.md` since v1.4.0)
+
+### Archive location
+
+On Step 9 success: `<workspace_root>/.wasp/state.md` → `<workspace_root>/.wasp/.archive/state-{run_id}.md`. The `.wasp/.archive/` folder accumulates one file per successful cascade — historical reference for "what got shipped together when".
+
+To prevent unbounded growth, periodic pruning is on the user (the plugin doesn't read from archive).
 
 ---
 

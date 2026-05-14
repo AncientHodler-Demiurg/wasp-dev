@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.4.1] - 2026-05-14 — `.wasp/state.md` extended to all wasp commands
+
+`wasp` plugin bumped to `1.4.1`. `bee` plugin unchanged at `4.5.1` (vendored upstream).
+
+### Added (via `wasp` plugin)
+- `/wasp:audit-prep`, `/wasp:bundle-audit-specs`, `/wasp:unify-audit-specs` now write `.wasp/state.md` per-repo (init + finalize lifecycle, archived to `.wasp/.archive/state-{run_id}.md` on success).
+- `/wasp:cross-pollinate` state file migrated from JSON (`cross-pollinate-state.json`) to markdown (`state.md`) for consistency with the per-repo format.
+- Unified state.md header across all 5 wasp commands: `# Wasp state — {name}` + `**Command:** {command_name}` field.
+- In-flight collision detection — every wasp command checks for an existing in-flight state.md and warns before overwriting.
+
+See [`plugins/wasp/CHANGELOG.md`](plugins/wasp/CHANGELOG.md) v1.4.1 for the full feature list.
+
+### Deferred to v1.4.2
+- `/wasp:debug`, `/wasp:forensics`, `/wasp:health` commands — wasp-side parallels of bee's debug commands.
+
+### Unchanged
+- `bee` plugin pristine at 4.5.1.
+
+---
+
 ## [1.4.0] - 2026-05-14 — `/wasp:pollinate` state file + `--resume` support
 
 `wasp` plugin bumped to `1.4.0`. `bee` plugin unchanged at `4.5.1` (vendored upstream).
