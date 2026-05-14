@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.4.0] - 2026-05-14 — `/wasp:pollinate` state file + `--resume` support
+
+Adds explicit progress tracking and resumability to `/wasp:pollinate`. Pre-v1.4.0, pollinate relied purely on external-source idempotency (re-querying git/npm/GitHub) for resume-after-failure. That works for correctness but provides no in-tree visibility of progress and no fast resume — the user has no way to inspect "where did pollinate die?" or to re-enter the pipeline at the point of failure without recomputing the queue, re-prompting bump decisions, and re-polling external state.
+
+v1.4.0 introduces `.wasp/state.md` per-repo as a persistent progress log + resume source.
+
+### Added
+
+- **New file: `.wasp/state.md`** (per-repo, markdown). Schema documented in the new "State file schema" appendix section. Lives in `.wasp/` (consistent with v1.3.0 namespace cleanup). Tracks:
+  - Run metadata (`Run ID`, `Status`, `Started`, `Last update`, `HEAD at start`, `Mode`)
+  - The computed publish queue (table of queued + skipped packages)
+  - Per-package gate state (one `### [i/N]` subsection per queued package, with `⏳/✅/❌/⚠️` markers per gate, each timestamped on completion)
+  - Append-only `## Run history` event log
+  - `## Failure context` section (populated on failure with failing gate + diagnostic + recovery hint)
+
+- **New section: "State file protocol"** near the top of pollinate.md. Defines the rules for state-file lifecycle (Created at Step 3.7, Updated on every gate transition, Finalized on Step 11 success, Stays on failure for resume). Specifies atomic-best-effort writes via tmp file + rename.
+
+- **New step: Step 0.0 "Resume from prior state"**. When `--resume` is passed:
+  - Reads `.wasp/state.md`. If absent or `Status: complete` → falls back to fresh run with a warning.
+  - Otherwise: parses queue + gates + failure context. Drift-checks the current HEAD against `HEAD at start` in state.md. If drift detected → halts. If clean → loads state, skips Steps 1–6 (already done), jumps to the first `⏳` gate.
+
+- **New step: Step 3.7 "Initialize `.wasp/state.md`"**. Writes the initial state.md after the publish plan is approved. Captures Run ID, queue table, all gates as `⏳`, HEAD SHA for drift detection.
+
+- **Step 11 finalization**: marks `Status: complete`, archives `.wasp/state.md` to `.wasp/.archive/state-{run_id}.md`. Active slot is cleared so next run starts fresh.
+
+- **New flag: `--resume`**. Documented in front-matter argument-hint. Triggers Step 0.0 logic.
+
+- **New appendix: "State file schema (`.wasp/state.md`, v1.4.0+)"**. Full schema + field reference + resume semantics + archive location explanation.
+
+### Changed
+
+- Front-matter description updated to mention "Resumable after failure via per-repo `.wasp/state.md`".
+- Instructions section updated: "idempotent" → "idempotent + resumable". Explains the dual model (external state for correctness, `.wasp/state.md` for observability + fast resume).
+- `## Current State` load-before-proceeding list now includes `.wasp/state.md` (with `NO_PRIOR_RUN` if absent).
+
+### Notes
+
+- **Cross-pollinate already had its own resume state** (`.wasp/cross-pollinate-state.json` for workspace-level cascades). v1.4.0 doesn't disturb that — pollinate's state.md is per-repo and complementary. When cross-pollinate invokes pollinate per repo in Step 7, each pollinate sub-invocation writes to that repo's `.wasp/state.md` naturally.
+- **Backwards compatible**. Configs without state.md just create one on first run. Old runs (v1.3.x and earlier) that may have died mid-flight don't have state.md → `--resume` on those returns "no in-flight state, starting fresh" (same as the configs-not-yet-created path).
+- **Forensics**. Archived state files under `.wasp/.archive/` accumulate one per successful run. Easy to retrospect "how long did the v4.3.0 publish take?" or "which gate timed out on the failed run of 2026-05-04?" without consulting the conversation transcript.
+
+### Known limitations (deferred to v1.4.1+ or v1.5.0)
+
+- Audit-spec lifecycle commands (`/wasp:audit-prep`, `/wasp:bundle-audit-specs`, `/wasp:unify-audit-specs`) still don't track state. Lower priority — they're simpler operations and re-runnability via filesystem checks works fine. Will add state.md support when needed.
+- Bee has debug/forensics/health commands (`/bee:debug`, `/bee:forensics`, `/bee:health`) that are entirely bee-infrastructure-focused. Wasp's equivalents (e.g. `/wasp:debug`, `/wasp:forensics` to diagnose failed pollinate/cross-pollinate runs against state.md + cross-pollinate-state.json + cross-pollinate-history.md) are deferred to v1.4.1+ for discussion.
+
+---
+
 ## [1.3.0] - 2026-05-14 — Wasp state moves to `.wasp/` namespace (fixes cross-namespace leak)
 
 Pre-v1.3.0, pollinate's per-repo state (credentials + lifecycle config) was stored in `.bee/` even though pollinate is a wasp command. The original `_BeeUpgrade/commands/pollinate.md` (from which wasp v1.0.0 inherited pollinate) was written assuming bee would absorb pollinate upstream, so it parked state in bee's namespace. That assumption never materialized; v1.3.0 corrects the leak.

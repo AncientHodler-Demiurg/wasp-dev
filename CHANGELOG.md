@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.4.0] - 2026-05-14 — `/wasp:pollinate` state file + `--resume` support
+
+`wasp` plugin bumped to `1.4.0`. `bee` plugin unchanged at `4.5.1` (vendored upstream).
+
+### Added (via `wasp` plugin)
+- `.wasp/state.md` per-repo state file for `/wasp:pollinate`. Tracks queue + per-package gate progress + run history + failure context. Updated at every gate transition through the publish pipeline.
+- `--resume` flag for `/wasp:pollinate`. Reads `.wasp/state.md`, drift-checks against current HEAD, and jumps to the first incomplete gate.
+- State file is archived to `.wasp/.archive/state-{run_id}.md` on successful run completion — useful for forensics + retrospective analysis.
+
+### Notes
+- Cross-pollinate's existing workspace state (`.wasp/cross-pollinate-state.json`) is unchanged. When it invokes pollinate per repo, each pollinate sub-invocation writes its own per-repo state.md.
+- Future versions may add equivalent state tracking to the audit-spec lifecycle commands and may add `/wasp:debug` / `/wasp:forensics` / `/wasp:health` commands to inspect wasp-side state (parallel to bee's debug commands which are bee-infrastructure-focused).
+
+See [`plugins/wasp/CHANGELOG.md`](plugins/wasp/CHANGELOG.md) v1.4.0 for the full feature list.
+
+### Unchanged
+- `bee` plugin pristine at 4.5.1.
+
+---
+
 ## [1.3.0] - 2026-05-14 — Wasp state moves to `.wasp/` namespace
 
 `wasp` plugin bumped to `1.3.0`. `bee` plugin unchanged at `4.5.1` (vendored upstream).

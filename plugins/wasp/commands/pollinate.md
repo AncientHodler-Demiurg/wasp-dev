@@ -1,13 +1,14 @@
 ---
-description: Post-ship publishing pipeline for GitHub repos — works for single-package, multi-package monorepo (npm workspaces / packages/* / custom dirs), and plain repos (versioning + GitHub Releases only). Auto-detects packages, queues only those whose code changed since the last release, validates each package's publish route (registry, token, scope), waits for CI, verifies on the registry with live polling and ✅ confirmation per package, and creates + backfills GitHub Releases. First run = interactive bootstrap wizard. Subsequent runs = full pipeline.
-argument-hint: "[--reinit] [--dry-run] [--skip-backfill] [--skip-npm] [--batch-approve]"
+description: Post-ship publishing pipeline for GitHub repos — works for single-package, multi-package monorepo (npm workspaces / packages/* / custom dirs), and plain repos (versioning + GitHub Releases only). Auto-detects packages, queues only those whose code changed since the last release, validates each package's publish route (registry, token, scope), waits for CI, verifies on the registry with live polling and ✅ confirmation per package, and creates + backfills GitHub Releases. Resumable after failure via per-repo `.wasp/state.md`. First run = interactive bootstrap wizard. Subsequent runs = full pipeline.
+argument-hint: "[--reinit] [--dry-run] [--resume] [--skip-backfill] [--skip-npm] [--batch-approve]"
 ---
 
 ## Current State (load before proceeding)
 
 Read these files using the Read tool:
-- `.bee/STATE.md` — if not found: NOT_INITIALIZED
+- `.bee/STATE.md` — if not found: NOT_INITIALIZED (bee not initialized)
 - `.wasp/config.json` — if not found: use `{}`
+- `.wasp/state.md` — if not found: NO_PRIOR_RUN (no in-flight pollinate state from a prior run). If found, parse the `**Status:**` field. If `complete` or absent → ignore (last run finished cleanly). If anything else (e.g. `failed`, `ci-waiting`, `verifying`) → there's a stale in-flight run that may be resumable.
 
 ## Git Status (load before proceeding)
 
@@ -16,19 +17,105 @@ Run these via Bash tool:
 - `git rev-parse --abbrev-ref HEAD` — capture as `$CURRENT_BRANCH`
 - `git log -1 --format='%H %s'` — capture as `$HEAD_COMMIT_INFO`
 
+## State file protocol (v1.4.0+)
+
+Pollinate maintains `.wasp/state.md` per-repo to track in-flight pipeline progress. This file is the source of truth for `--resume` and provides forensic visibility into failed runs.
+
+**Lifecycle:**
+
+1. **Created** at Step 3.7 (after the publish plan is finalized and user-approved). Initialized with the computed queue, all gates marked `⏳`, and `Status: planning`.
+2. **Updated at every gate transition** — each step that has externally-visible side effects (commit, push, tag, CI workflow start/end, npm publish detection, GitHub Release create, backfill) updates `.wasp/state.md` BEFORE moving on. The protocol is: emit the user-facing progress block, then immediately write the equivalent state to `.wasp/state.md`. Both records are kept in sync.
+3. **Finalized on completion** at Step 11. Mark `Status: complete` then archive: `mv .wasp/state.md .wasp/.archive/state-<run_id>.md` so a future run starts with a clean slate. The archived file remains as historical record.
+4. **Stays in place on failure** with `Status: failed` and a populated `## Failure context` section listing the failing gate + error excerpt + suggested recovery.
+
+**State writes are atomic-best-effort** — write to a temp file in the same directory then rename. Avoid leaving a half-written state.md if pollinate crashes mid-write.
+
+**`--resume` flag behavior:**
+
+When `--resume` is passed:
+- Step 0.0 (new): read `.wasp/state.md`. If present and `Status != complete`, load the queue + per-package gate progress into runtime variables. Skip the bootstrap wizard (Steps 0.1–0.5), validation guards re-run (Step 1 — to confirm tree state hasn't drifted), then fast-path through Step 3 (queue is loaded, not recomputed) and pick up at the first `⏳` gate.
+- If `.wasp/state.md` is absent or already `complete`: warn the user, fall back to a fresh run (effectively ignoring `--resume`).
+- Re-validation guards apply: if the git tree has changed since the prior run (e.g. new commits since the queue was computed), pollinate halts with `"State drift detected: new commits since run started. Re-run /wasp:pollinate --reinit to recompute the queue."`
+
+**Resume semantics for each gate type:**
+
+| Gate | How `--resume` handles it |
+|---|---|
+| package.json bumped | Idempotent — re-applying the bump no-ops if value already matches |
+| commit chore(version) | Skip if commit already exists (`git rev-list --grep` finds it) |
+| pushed to origin | Skip if local SHA == origin SHA |
+| tag pushed | Skip if `git ls-remote --tags origin <tag>` shows it exists |
+| workflow run | Re-poll same `head_sha` to find the prior run; verify its conclusion |
+| npm registry live | Re-poll (npm cache may have settled since last attempt) |
+| dist-tag = latest | Re-query `npm view <pkg>` |
+| provenance attestation | Re-query the attestation API |
+| GitHub Release created | Skip if `gh release view <tag>` returns 200 |
+
+In every case: re-checking is cheap. The state.md captures progress as observed; resume re-validates against external reality.
+
 ## Instructions
 
 You are running `/wasp:pollinate` -- the post-ship publishing pipeline for npm-backed GitHub repositories. After `/bee:ship` and `/bee:commit` have produced a clean commit on the spec branch, this command takes that commit through the full ceremony: push to origin → tag → trigger CI publish → verify npm registry → create GitHub Release → backfill any missing prior Releases. Follow these steps in order.
 
-This command is **idempotent**: if any step has already happened (tag exists, Release exists, npm version published), it detects that and skips, so the command is safe to re-run after partial failures.
+This command is **idempotent + resumable**: external state (git, npm, GitHub) is the source of truth for "did this step happen", while `.wasp/state.md` tracks in-tree progress for fast resume and forensic visibility. Re-running after a partial failure is safe; passing `--resume` skips already-✅ gates.
 
 This command **respects the bug-detection-by-design** philosophy: it stops at the first ambiguous condition and asks the user via AskUserQuestion rather than guessing. Pushing to remote, creating tags, and publishing to npm are visible/destructive actions; deliberation matters.
 
-### Step 0: First-Run Bootstrap (or Load Existing Credentials)
+### Step 0: First-Run Bootstrap (or Load Existing Credentials, or Resume)
 
-Before running the publish pipeline, ensure the project is initialized for pollinate. On **first contact** with a repo, this runs a 4-stage wizard that gathers + verifies everything pollinate needs (GitHub repo URL, PAT, repo secrets, npm package URL). On **subsequent runs**, it detects existing initialization and validates it's still good — fast path, no prompts.
+Before running the publish pipeline, ensure the project is initialized for pollinate. On **first contact** with a repo, this runs a 4-stage wizard that gathers + verifies everything pollinate needs (GitHub repo URL, PAT, repo secrets, npm package URL). On **subsequent runs**, it detects existing initialization and validates it's still good — fast path, no prompts. If `--resume` is passed and a prior in-flight state exists, Step 0.0 short-circuits to mid-pipeline resume.
 
 If `--reinit` is in `$ARGUMENTS`, force re-running the wizard even if credentials exist. The previous credentials file is backed up to `.wasp/pollinate-credentials/.archive/pollinate-credentials-{ISO8601-timestamp}.md`.
+
+#### Step 0.0: Resume from prior state (if `--resume` passed)
+
+Skip this substep if `--resume` is NOT in `$ARGUMENTS`. Continue to Step 0.1.
+
+If `--resume` is passed:
+
+1. Read `.wasp/state.md`. If not found OR `Status:` field is `complete`:
+   - Display: `⚠ --resume passed but no in-flight state found. Starting a fresh run.`
+   - Treat as if `--resume` was not passed; continue to Step 0.1.
+
+2. If `Status:` is `failed` or any in-flight status (`planning`, `bumping`, `pushing`, `tag-pushed`, `ci-waiting`, `verifying`, `creating-release`, `backfilling`):
+   - Parse the file: extract `Run ID`, the queue table, per-package gate progress, and the `## Failure context` section (if any).
+   - Display:
+     ```
+     🐝 Resuming pollinate run {run_id}
+        Started: {started_at}
+        Last update: {last_update}
+        Status at last write: {status}
+
+     Queue ({N} packages, {K} already complete):
+       ✅  {pkg1.name}@{pkg1.next_version}  complete (verified live on npm)
+       ⏳  {pkg2.name}@{pkg2.next_version}  in-flight (last gate: workflow completed green)
+       ⏳  {pkg3.name}@{pkg3.next_version}  pending
+
+     {if failure context present:}
+     Last failure:
+       Gate: {failing_gate}
+       Reason: {error_excerpt}
+       Suggested recovery: {hint}
+     ```
+
+3. **Drift check.** Verify the git tree state matches what the state.md run was working from:
+   - Read current HEAD SHA. Compare against `**HEAD at start:**` field in state.md (which Step 3.7 records).
+   - If they differ: halt with `"State drift detected: HEAD is now {current}, was {start_head}. Re-run /wasp:pollinate --reinit to recompute the queue against the new HEAD."`
+   - If they match: drift-free, safe to resume.
+
+4. **Resume validation guards.** Re-run Step 1 guards (NOT_INITIALIZED, NO_GIT, NO_LIFECYCLE_CONFIG, CLEAN_TREE — but allow some non-cleanness if it matches what state.md saw last; COMMITTED_PHASES). If any hard guard fails: halt with diagnostic. Soft guards (COMMITTED_PHASES) skip user prompt during resume (already answered in original run).
+
+5. **Load state.** Populate runtime variables from state.md: `$QUEUE` (the package array with their `next_version`, `tag_name`, etc.), `$SHARED_TAGS`, gate-completion state per package.
+
+6. **Skip Steps 1–6 of the pipeline** (already done at the original run start: guards passed, queue computed, plan approved, tag annotation written, push + tag done). Jump to the first incomplete gate.
+   - If tag wasn't pushed yet → resume at Step 7.
+   - If tag pushed, workflow incomplete → resume at Step 8.
+   - If workflow complete, registry verification incomplete → resume at Step 9.
+   - If verification complete, backfill incomplete → resume at Step 10.
+
+7. From the resume point onward, every gate transition writes to state.md as normal.
+
+If the resume path encounters new failures, state.md gets a fresh `## Failure context` section appended (older context entries remain as history).
 
 #### Step 0.1: Detect existing initialization (with v1.3.0 legacy-layout migration)
 
@@ -1181,6 +1268,36 @@ AskUserQuestion(
 
 Otherwise: per-step prompts continue as usual.
 
+#### 3.7 — Initialize `.wasp/state.md`
+
+After the user has approved the plan (or, in `--batch-approve` mode, after the single batch confirmation), write the initial state.md to disk. This is the first persistent record of the run.
+
+```bash
+RUN_ID=$(date -u +%Y-%m-%dT%H%M%SZ)
+HEAD_SHA=$(git rev-parse HEAD)
+mkdir -p .wasp
+```
+
+Write `.wasp/state.md` with the schema documented in the appendix (`## State file schema`). Initial population:
+
+- `**Run ID:**` ← `$RUN_ID`
+- `**Status:**` ← `planning`
+- `**Started:**` ← current ISO 8601 timestamp
+- `**Last update:**` ← same as Started
+- `**Pollinate version:**` ← `1.4.0` (from plugin.json)
+- `**HEAD at start:**` ← `$HEAD_SHA`
+- `**Mode:**` ← one of `interactive` / `batch-approve` / `dry-run` (from flags)
+- `## Queue` table populated from `$QUEUE` and skipped packages
+- `## Per-package gates` section: one ### header per queued package, with ALL gates set to `⏳`
+- `## Run history` section: one entry recording the STARTED event
+- `## Failure context` section: empty (will be populated on failure)
+
+For dry-run mode: write state.md as above but with `**Mode:** dry-run`. After the plan is printed in Step 3.6 display, halt before any destructive action and mark `**Status:** complete` with a `## Run history` entry noting `dry-run, no execution`.
+
+Display: `✅ state.md initialized at .wasp/state.md (run ID: {RUN_ID})`.
+
+**From Step 4 onward**, every gate transition follows the protocol described in "State file protocol" near the top of this file: emit the user-facing progress block, then update `.wasp/state.md` to reflect the same. Atomicity: write to `.wasp/.state.md.tmp`, then `mv` to `.wasp/state.md`.
+
 ### Step 3.5: Spec Target Reconciliation (per package)
 
 After computing per-package next versions in Step 3, cross-check against the **active spec's** declared version target. This catches forgotten version bumps before they ship.
@@ -1775,6 +1892,17 @@ Backfill:
 Gates: {✅ all passed | ⚠️ {N} warnings — see Follow-ups}
 ```
 
+**Finalize and archive `.wasp/state.md`.** Mark the run complete and move the state file out of the active slot:
+
+```bash
+# Update state.md one last time: set Status: complete, Last update: now, append final ## Run history entry
+# Then archive it:
+mkdir -p .wasp/.archive
+mv .wasp/state.md .wasp/.archive/state-${RUN_ID}.md
+```
+
+The active `.wasp/state.md` slot is now empty — next pollinate run starts cleanly. The archived file under `.wasp/.archive/state-{run_id}.md` remains as historical record of this run (useful for forensics or retrospective analysis).
+
 If `$WARNINGS` is non-empty, also display a "Follow-ups" block listing each:
 
 ```
@@ -1822,6 +1950,104 @@ Invoke-RestMethod -Method Post -Uri $url -Headers $headers -InFile $payloadFile;
 ```
 
 PowerShell 7+ handles this without the `[string]` cast, but pollinate targets the lowest common denominator.
+
+---
+
+## State file schema (`.wasp/state.md`, v1.4.0+)
+
+Pollinate writes this per-repo file at Step 3.7 (after the publish plan is approved) and updates it at every gate transition through the pipeline. Archived to `.wasp/.archive/state-{run_id}.md` on successful completion. Stays in place on failure for `--resume`.
+
+```markdown
+# Pollinate state — {repo_name}
+
+**Run ID:** 2026-05-14T15:30:00Z
+**Status:** ci-waiting
+**Started:** 2026-05-14T15:30:00Z
+**Last update:** 2026-05-14T15:42:18Z
+**Pollinate version:** 1.4.0
+**HEAD at start:** abc1234567890...
+**Mode:** interactive
+
+## Queue (computed at run start)
+
+| # | Package | Current → Next | Bump reason | Tag | Workflow |
+|---|---|---|---|---|---|
+| 1 | @stoachain/stoa-core | 4.2.0 → 4.3.0 | code-changed (MINOR) | v4.3.0 | publish.yml |
+| 2 | @stoachain/ouronet-core | 4.2.0 → 4.2.1 | dep-bump-only (PATCH) | v4.3.0 | publish.yml |
+| 3 | @stoachain/kadena-stoic-legacy | 4.2.0 | (skipped, no changes) | — | — |
+
+## Per-package gates
+
+### [1/2] @stoachain/stoa-core@4.3.0
+- ✅ package.json bumped (2026-05-14T15:31:02Z)
+- ✅ commit chore(version) created (sha abc1234, 2026-05-14T15:31:08Z)
+- ✅ pushed to origin/main (2026-05-14T15:31:15Z)
+- ✅ tag pushed: v4.3.0 (2026-05-14T15:31:22Z)
+- ✅ workflow run started: run #142 (2026-05-14T15:31:35Z)
+- ✅ workflow completed green: 2m 4s (2026-05-14T15:33:39Z)
+- ✅ npm registry live (2026-05-14T15:34:12Z)
+- ✅ dist-tag = latest (2026-05-14T15:34:14Z)
+- ✅ provenance attestation present (2026-05-14T15:34:15Z)
+- ✅ GitHub Release created: v4.3.0 (2026-05-14T15:34:32Z)
+- ✓ COMPLETE
+
+### [2/2] @stoachain/ouronet-core@4.2.1
+- ✅ package.json bumped (peer-dep stoa-core repinned to 4.3.0)
+- ✅ commit chore(version) created (def5678)
+- ✅ pushed to origin/main
+- ✅ tag pushed: v4.3.0 (shared tag — already pushed by [1])
+- ⏳ workflow run started
+- ⏳ workflow completed green
+- ⏳ npm registry live
+- ⏳ dist-tag = latest
+- ⏳ provenance attestation
+- ⏳ GitHub Release
+
+## Run history
+
+- 2026-05-14T15:30:00Z STARTED — flags: (none, interactive mode)
+- 2026-05-14T15:30:15Z queue computed: 2 queued, 1 skipped
+- 2026-05-14T15:30:32Z user confirmed plan
+- 2026-05-14T15:31:22Z tag v4.3.0 pushed to origin
+- 2026-05-14T15:33:39Z workflow #142 completed green
+- 2026-05-14T15:34:32Z [1/2] @stoachain/stoa-core@4.3.0 COMPLETE
+- 2026-05-14T15:42:18Z entered ci-waiting for [2/2]
+
+## Failure context
+
+(empty — no failure recorded for current run)
+```
+
+### Field reference
+
+| Field | Type / Values |
+|---|---|
+| `Run ID` | ISO 8601 timestamp set at Step 3.7. Stable for the lifetime of the run. |
+| `Status` | One of: `planning`, `bumping`, `pushing`, `tag-pushed`, `ci-waiting`, `verifying`, `creating-release`, `backfilling`, `complete`, `failed`. Updated at every gate transition. |
+| `Started` | ISO 8601 timestamp; set at Step 3.7, never updated. |
+| `Last update` | ISO 8601 timestamp; updated on every state.md write. |
+| `Pollinate version` | Pollinate's own version string (from plugin.json). Helps debug "which version wrote this state?". |
+| `HEAD at start` | Full SHA of HEAD at run start. Used by `--resume` for drift detection. |
+| `Mode` | `interactive` / `batch-approve` / `dry-run` — selected by argument flags. |
+| `## Queue` table | One row per declared package in this repo's `$PACKAGES`. Rows for queued packages show their bump; rows for skipped packages show why. |
+| `## Per-package gates` | One `### [i/N]` subsection per queued package. Gates are markdown list items with `⏳` (pending), `✅` (complete), `❌` (failed), or `⚠️` (warn). Each completed gate has a timestamp. |
+| `## Run history` | Append-only event log. Each entry: `{timestamp} {event description}`. Useful for forensics and resume audit. |
+| `## Failure context` | Empty on success; populated on failure with the failing gate, error excerpt, and suggested recovery. May contain multiple entries if `--resume` runs into another failure. |
+
+### When `--resume` reads this file
+
+Resume reads:
+- `Status` to confirm there's something to resume from (not `complete`)
+- `HEAD at start` for drift check
+- `Queue` table to reconstruct `$QUEUE`
+- `Per-package gates` to determine the first `⏳` gate (the resume point)
+- Per-package metadata (next_version, tag_name) to skip Step 3 recomputation
+
+### Archive location
+
+On Step 11 success: `.wasp/state.md` → `.wasp/.archive/state-{run_id}.md`. The `.wasp/.archive/` directory accumulates one file per successful run; useful for retrospective analysis (e.g. "how long did the v4.3.0 publish take from start to finish?").
+
+To keep `.wasp/.archive/` from growing unbounded, projects can periodically prune (the archive is purely historical — pollinate doesn't read from it).
 
 ---
 
