@@ -7,7 +7,7 @@ argument-hint: "[--reinit] [--dry-run] [--skip-backfill] [--skip-npm] [--batch-a
 
 Read these files using the Read tool:
 - `.bee/STATE.md` — if not found: NOT_INITIALIZED
-- `.bee/config.json` — if not found: use `{}`
+- `.wasp/config.json` — if not found: use `{}`
 
 ## Git Status (load before proceeding)
 
@@ -28,33 +28,102 @@ This command **respects the bug-detection-by-design** philosophy: it stops at th
 
 Before running the publish pipeline, ensure the project is initialized for pollinate. On **first contact** with a repo, this runs a 4-stage wizard that gathers + verifies everything pollinate needs (GitHub repo URL, PAT, repo secrets, npm package URL). On **subsequent runs**, it detects existing initialization and validates it's still good — fast path, no prompts.
 
-If `--reinit` is in `$ARGUMENTS`, force re-running the wizard even if credentials exist. The previous credentials file is backed up to `.bee/pollinate-credentials/.archive/pollinate-credentials-{ISO8601-timestamp}.md`.
+If `--reinit` is in `$ARGUMENTS`, force re-running the wizard even if credentials exist. The previous credentials file is backed up to `.wasp/pollinate-credentials/.archive/pollinate-credentials-{ISO8601-timestamp}.md`.
 
-#### Step 0.1: Detect existing initialization
+#### Step 0.1: Detect existing initialization (with v1.3.0 legacy-layout migration)
 
-Check `.bee/pollinate-credentials/pollinate-credentials.md`:
+**v1.3.0 layout change:** as of v1.3.0, pollinate's per-repo state moved from `.bee/` to `.wasp/`. Specifically:
+- `.bee/pollinate-credentials/` → `.wasp/pollinate-credentials/`
+- `.bee/config.json` `lifecycle:` block → `.wasp/config.json` (still wrapped under a `lifecycle:` key; same shape, different file)
 
-- **If file exists AND `--reinit` is NOT passed:**
-  1. Parse the YAML-like fields (`Github repository`, `Github owner`, `Github repo`, `npm package`, `npm URL`, `Local PAT path`, `Repo secret RELEASE_TOKEN`, `Repo secret NPMPUSHER`).
-  2. Verify each field is still consistent with the project state:
-     - `Github repository` matches `git remote -v` origin URL
-     - `npm package` matches `{lifecycle.npm_dir}/package.json` `name`
-     - `.secrets/PAT.txt` exists and is non-empty
-  3. If all checks pass: load values into runtime variables (`$REPO_OWNER`, `$REPO_NAME`, `$PKG_NAME`, `$PKG_VERSION`, `$NPM_URL`, `$LOCAL_PAT`) and **SKIP to Step 1**. Display:
+Pollinate detects either layout and offers a one-time migration on first run with the old layout. Once migrated, the `.bee/` side is left intact (so other bee commands keep working) — only the `lifecycle:` key is removed from `.bee/config.json`.
+
+**Detection logic (priority order):**
+
+1. **Check `.wasp/pollinate-credentials/pollinate-credentials.md`** (canonical v1.3.0+ location).
+
+   - **If file exists AND `--reinit` is NOT passed:**
+     1. Parse the YAML-like fields (`Github repository`, `Github owner`, `Github repo`, `npm package`, `npm URL`, `Local PAT path`, `Repo secret RELEASE_TOKEN`, `Repo secret NPMPUSHER`).
+     2. Verify each field is still consistent with the project state:
+        - `Github repository` matches `git remote -v` origin URL
+        - `npm package` matches `{lifecycle.npm_dir}/package.json` `name` (legacy single-package) OR resolves through `{lifecycle.packages[].name}` (multi-package mode)
+        - `.secrets/PAT.txt` exists and is non-empty
+     3. If all checks pass: load values into runtime variables and **SKIP to Step 1**. Display:
+        ```
+        ✓ Pollinate already initialized for {$REPO_OWNER}/{$REPO_NAME} (verified {timestamp from file}).
+        ```
+     4. If any check fails: display "Pollinate credentials drifted: {specific mismatch}. Re-running wizard." and continue to 0.2.
+
+   - **If `.wasp/pollinate-credentials/pollinate-credentials.md` does NOT exist:** check legacy layout (step 2 below).
+
+   - **If `--reinit` is passed:** archive the existing file, then continue to 0.2:
+     ```bash
+     TS=$(date +%Y-%m-%dT%H%M%S)
+     mkdir -p .wasp/pollinate-credentials/.archive
+     mv .wasp/pollinate-credentials/pollinate-credentials.md \
+        .wasp/pollinate-credentials/.archive/pollinate-credentials-${TS}.md
      ```
-     ✓ Pollinate already initialized for {$REPO_OWNER}/{$REPO_NAME} (verified {timestamp from file}).
+
+2. **Legacy layout check.** If `.wasp/pollinate-credentials/pollinate-credentials.md` does NOT exist, check `.bee/pollinate-credentials/pollinate-credentials.md`:
+
+   - **If found:** this is a pre-v1.3.0 install. Offer migration:
+
      ```
-  4. If any check fails: display "Pollinate credentials drifted: {specific mismatch}. Re-running wizard." and continue to 0.2.
+     ⚠ Detected legacy pollinate layout (pre-v1.3.0):
+       Found: .bee/pollinate-credentials/pollinate-credentials.md
+       Found: .bee/config.json with `lifecycle:` block
 
-- **If file does NOT exist:** continue to 0.2 (first run).
+     As of wasp v1.3.0, pollinate's data lives in .wasp/ (own namespace,
+     no longer co-tenant in .bee/). Recommended action: migrate now.
 
-- **If `--reinit` is passed:** archive the existing file, then continue to 0.2:
-  ```bash
-  TS=$(date +%Y-%m-%dT%H%M%S)
-  mkdir -p .bee/pollinate-credentials/.archive
-  mv .bee/pollinate-credentials/pollinate-credentials.md \
-     .bee/pollinate-credentials/.archive/pollinate-credentials-${TS}.md
-  ```
+     The migration is non-destructive:
+       1. Move .bee/pollinate-credentials/ → .wasp/pollinate-credentials/
+       2. Extract the `lifecycle:` block from .bee/config.json and write to
+          .wasp/config.json (as `{ "lifecycle": { ... } }`)
+       3. Remove the `lifecycle:` key from .bee/config.json (other bee
+          fields like `stacks`, `implementation_mode`, etc. stay untouched)
+       4. Update .gitignore to include .wasp/ if missing
+     ```
+
+     AskUserQuestion:
+     ```
+     question: "Migrate to the new .wasp/ layout? (Recommended — all subsequent pollinate runs expect the new layout.)",
+     options: [
+       "Yes, migrate (Recommended)",
+       "Re-init from scratch (run the wizard fresh; leaves .bee/ legacy files in place)",
+       "Cancel"
+     ]
+     ```
+
+     If "Yes, migrate":
+     ```bash
+     # 1. Move credentials directory
+     mkdir -p .wasp
+     mv .bee/pollinate-credentials .wasp/pollinate-credentials
+
+     # 2. Extract lifecycle block from .bee/config.json into .wasp/config.json
+     node -e "
+       const fs = require('fs');
+       const bee = JSON.parse(fs.readFileSync('.bee/config.json', 'utf8'));
+       const lifecycle = bee.lifecycle;
+       delete bee.lifecycle;
+       fs.writeFileSync('.wasp/config.json', JSON.stringify({lifecycle}, null, 2) + '\n');
+       fs.writeFileSync('.bee/config.json', JSON.stringify(bee, null, 2) + '\n');
+     "
+
+     # 3. Update .gitignore to include .wasp/ if not already
+     if ! grep -q '^\.wasp/$\|^\.wasp$' .gitignore 2>/dev/null; then
+       echo ".wasp/" >> .gitignore
+     fi
+     ```
+
+     Display: `✅ Migrated to .wasp/ layout. Continuing with new paths.` Then load the migrated state and SKIP to Step 1 (same fast-path as if file was at .wasp/ originally).
+
+     If "Re-init from scratch": continue to 0.2 (full first-run wizard). The wizard will write to `.wasp/` directly; the user is responsible for cleaning up the orphaned `.bee/` files later if they want.
+
+     If "Cancel": halt with "Migration cancelled. Re-run /wasp:pollinate when ready."
+
+   - **If NOT found:** this is a fresh install. Continue to 0.2 (first-run wizard).
 
 #### Step 0.2: Stage A — Auto-detect (no user input)
 
@@ -534,14 +603,14 @@ Call `GET /repos/{$REPO_OWNER}/{$REPO_NAME}/branches/main/protection` with the l
     ⚠ Branch protection on main requires {N} PR review(s).
       Pollinate will use the PR-required publish flow (slower, but compatible).
 
-      Setting lifecycle.branch_protection = "pr-required" in .bee/config.json.
+      Setting lifecycle.branch_protection = "pr-required" in .wasp/config.json.
 
       Alternatively, to allow direct fast-forward pushes:
         - Add yourself as a bypass actor at:
           https://github.com/{owner}/{repo}/settings/branches
         - Then set lifecycle.branch_protection = "fast-forward".
     ```
-    Update the lifecycle config in `.bee/config.json` in-place: set `branch_protection: "pr-required"`.
+    Update the lifecycle config in `.wasp/config.json` in-place: set `branch_protection: "pr-required"`.
 - **HTTP 403**: PAT lacks repo admin scope; protection rules are not visible. Display warning, default to `branch_protection: "fast-forward"` and let the actual push attempt determine if PR-required is needed.
 
 ##### C3: Workflow file exists
@@ -621,22 +690,29 @@ If "Yes": apply all Edits. If "Show per-field": ask one-by-one.
 
 ##### D1: .gitignore
 
-Already added `.secrets/` proactively in B3. Verify here:
-- `.gitignore` exists in working tree.
-- Contains `.secrets/` (or `.secrets`) line.
-- If `.bee/` is not gitignored: warn that the lifecycle config (`config.json`) and `pollinate-credentials/` won't be ignored. Add `.bee/` to `.gitignore` if user agrees:
-  ```
-  ⚠ .bee/ is not in .gitignore. Pollinate stores credentials there.
+Already added `.secrets/` proactively in B3. Verify here that `.gitignore` exists in the working tree AND contains both required ignore rules. Add missing ones (with user confirmation).
 
+**Required ignores (post-v1.3.0 layout):**
+- `.secrets/` — token store (already added in B3)
+- `.wasp/` — wasp's per-repo state directory (lifecycle config + pollinate-credentials live here)
+
+For `.wasp/` specifically (pollinate's own state — must be ignored to keep credentials safe):
+```bash
+if ! grep -q '^\.wasp/$\|^\.wasp$\|^/\.wasp/$' .gitignore 2>/dev/null; then
   AskUserQuestion(
-    question: "Add .bee/ to .gitignore?",
-    options: ["Yes, add", "No, I have a custom rule", "Custom"]
+    question: "Add .wasp/ to .gitignore? Pollinate stores per-repo state and credentials here.",
+    options: ["Yes, add (Recommended)", "No, I have a custom rule", "Cancel"]
   )
-  ```
+  # On "Yes": echo ".wasp/" >> .gitignore
+fi
+```
 
-##### D2: Lifecycle config in .bee/config.json
+**Optional ignore (recommended but not required for pollinate):**
+- `.bee/` — bee's state directory. Bee's session state (`STATE.md`, `events/`) is typically local-only and many projects already ignore the whole `.bee/` tree. Post-v1.3.0, pollinate no longer keeps anything in `.bee/`, so the ignore status of `.bee/` is now purely a bee-side concern — pollinate doesn't depend on it.
 
-Read `.bee/config.json`. If `lifecycle` block is missing, build it based on `$REPO_TYPE`.
+##### D2: Lifecycle config in .wasp/config.json
+
+Read `.wasp/config.json`. If `lifecycle` block is missing, build it based on `$REPO_TYPE`.
 
 **Plain-repo only — extra question first:** if `$REPO_TYPE = "plain"`, ask where the version comes from:
 
@@ -767,14 +843,14 @@ The auto-detected default usually matches the repo's GitHub default branch setti
 Display the proposed config in full, then:
 ```
 AskUserQuestion(
-  question: "Save this lifecycle config to .bee/config.json?",
+  question: "Save this lifecycle config to .wasp/config.json?",
   options: ["Yes, save", "Edit a field first", "Cancel"]
 )
 ```
 
 ##### D3: Write pollinate-credentials.md
 
-Create `.bee/pollinate-credentials/` directory if missing. Write `pollinate-credentials.md`:
+Create `.wasp/pollinate-credentials/` directory if missing. Write `pollinate-credentials.md`:
 
 ```markdown
 # Pollinate credentials — initialized {ISO 8601 timestamp}
@@ -802,12 +878,12 @@ Create `.bee/pollinate-credentials/` directory if missing. Write `pollinate-cred
 
 ## Lifecycle config
 
-Saved to `.bee/config.json` lifecycle block. See command file for the full schema.
+Saved to `.wasp/config.json` lifecycle block. See command file for the full schema.
 
 ---
 
-**Reset:** delete `.bee/pollinate-credentials/` to force the wizard to re-run.
-**Re-init:** run `/wasp:pollinate --reinit` to re-run the wizard without deleting (existing file is archived to `.bee/pollinate-credentials/.archive/`).
+**Reset:** delete `.wasp/pollinate-credentials/` to force the wizard to re-run.
+**Re-init:** run `/wasp:pollinate --reinit` to re-run the wizard without deleting (existing file is archived to `.wasp/pollinate-credentials/.archive/`).
 ```
 
 ##### D4: Final summary
@@ -819,8 +895,8 @@ Display:
 Saved files:
   ✓ .secrets/PAT.txt (gitignored)
   ✓ .gitignore updated (.secrets/ {+ .bee/ if added})
-  ✓ .bee/config.json lifecycle block
-  ✓ .bee/pollinate-credentials/pollinate-credentials.md
+  ✓ .wasp/config.json lifecycle block
+  ✓ .wasp/pollinate-credentials/pollinate-credentials.md
 
 Verified:
   ✓ GitHub PAT (user: {github-username}, scopes: repo+workflow+write:packages)
@@ -847,13 +923,13 @@ Check these guards in order. Stop immediately if any fails:
    "No git repository detected. `/wasp:pollinate` operates on git remotes."
    Do NOT proceed.
 
-3. **NO_LIFECYCLE_CONFIG guard:** Read `.bee/config.json`. The block is valid if EITHER:
+3. **NO_LIFECYCLE_CONFIG guard:** Read `.wasp/config.json`. The block is valid if EITHER:
    - **Multi-package mode**: `lifecycle.packages` exists as an array with ≥1 entries AND `lifecycle.publishes_to_npm` is `true`, OR
    - **Legacy single-package mode**: `lifecycle.npm_dir` is set AND `lifecycle.publishes_to_npm` is `true`, OR
    - **Plain mode**: `lifecycle.repo_type` is `"plain"` (regardless of `publishes_to_npm`).
 
    If none of these apply, tell the user:
-   "This project is not configured for pollinate. Add a `lifecycle` block to `.bee/config.json`. For a multi-package monorepo:
+   "This project is not configured for pollinate. Add a `lifecycle` block to `.wasp/config.json`. For a multi-package monorepo:
 
    ```json
    \"lifecycle\": {
@@ -902,7 +978,7 @@ Check these guards in order. Stop immediately if any fails:
 
 ### Step 2: Load Lifecycle Config
 
-Read `.bee/config.json` `lifecycle` block. Determine the operating mode first:
+Read `.wasp/config.json` `lifecycle` block. Determine the operating mode first:
 
 - **Multi-package mode**: `lifecycle.packages` is a non-empty array → store as `$PACKAGES` (the master per-package config array).
 - **Legacy single-package mode**: `lifecycle.packages` is absent → synthesize `$PACKAGES = [{ "name": <derived from npm_dir/package.json>, "dir": <npm_dir>, "tag_pattern": <legacy>, "release_title_pattern": <legacy>, "workflow": <legacy ci_workflow_filename>, "changelog_path": <legacy>, "registries": [<derived from top-level npm_registry/use_provenance>] }]` — a one-entry array so all downstream loops still work.
@@ -1751,7 +1827,7 @@ PowerShell 7+ handles this without the `[string]` cast, but pollinate targets th
 
 ## Lifecycle config schema (full reference)
 
-Add to `.bee/config.json`. Two schema modes are supported.
+Add to `.wasp/config.json`. Two schema modes are supported.
 
 ### Multi-package mode (v1.1.0+, recommended for monorepos)
 

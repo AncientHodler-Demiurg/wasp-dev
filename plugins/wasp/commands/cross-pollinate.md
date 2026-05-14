@@ -88,11 +88,11 @@ Enumerate every immediate subdirectory of `$WORKSPACE_ROOT` that is a git reposi
 
 For each candidate:
 1. Read `<candidate>/package.json` if it exists.
-2. Check for `<candidate>/.bee/pollinate-credentials/pollinate-credentials.md` — is this repo wasp:pollinate-initialized?
-3. Check for `<candidate>/.bee/config.json` `lifecycle.packages` — does this repo declare publishable packages?
+2. Check for `<candidate>/.wasp/pollinate-credentials/pollinate-credentials.md` — is this repo wasp:pollinate-initialized?
+3. Check for `<candidate>/.wasp/config.json` `lifecycle.packages` — does this repo declare publishable packages?
 4. Record: `{path, has_package_json, pollinate_initialized, packages: [...]}` in `$DETECTED_REPOS`.
 
-For each repo's packages: if `lifecycle.packages` exists in its `.bee/config.json`, enumerate package names. Otherwise, fall back to legacy single-package mode (use root `package.json` `name` if present).
+For each repo's packages: if `lifecycle.packages` exists in its `.wasp/config.json`, enumerate package names. Otherwise, fall back to legacy single-package mode (use root `package.json` `name` if present).
 
 #### Step 0.3: Stage B — Confirm member repos
 
@@ -286,7 +286,7 @@ Check these guards in order. Stop immediately if any fails:
 
 2. **MEMBER_REPO_EXISTS guard:** For each repo in `$WORKSPACE_CONFIG.repos`, verify `<workspace_root>/<repo.path>` exists and contains `.git/`. Halt on any missing repo with: "Repo {path} declared in cross-pollinate.yml is missing from disk. Either restore it or re-run `--reinit`."
 
-3. **REPO_POLLINATE_INITIALIZED guard:** For each repo where `publishes: true`, verify `<repo.path>/.bee/pollinate-credentials/pollinate-credentials.md` exists. Halt with: "Repo {path} declares publishes:true but lacks pollinate init. Run `cd {path} && /wasp:pollinate --reinit`, then re-invoke cross-pollinate."
+3. **REPO_POLLINATE_INITIALIZED guard:** For each repo where `publishes: true`, verify `<repo.path>/.wasp/pollinate-credentials/pollinate-credentials.md` exists. Halt with: "Repo {path} declares publishes:true but lacks pollinate init. Run `cd {path} && /wasp:pollinate --reinit`, then re-invoke cross-pollinate."
 
 4. **CLEAN_TREES guard:** For each repo, check `git status --short`. If any has uncommitted changes, display per-repo status and AskUserQuestion:
    ```
@@ -295,7 +295,7 @@ Check these guards in order. Stop immediately if any fails:
    ```
    Default: halt. Cross-pollinate mutates package.json files in downstream repos (Step 7.j), and uncommitted changes there would conflate human-work with cross-pollinate-work.
 
-5. **DEFAULT_BRANCH guard:** For each repo, verify `git rev-parse --abbrev-ref HEAD` matches the repo's expected branch. The expected branch is taken from the per-repo `branch` field if present, else from `$WORKSPACE_CONFIG.settings.consumer_repo_branch` for consumer repos, else the repo's `.bee/config.json` `lifecycle.branch_protection` defaults to `main`. Halt with a clear diagnostic if any repo is on a feature branch.
+5. **DEFAULT_BRANCH guard:** For each repo, verify `git rev-parse --abbrev-ref HEAD` matches the repo's expected branch. The expected branch is taken from the per-repo `branch` field if present, else from `$WORKSPACE_CONFIG.settings.consumer_repo_branch` for consumer repos, else the repo's `.wasp/config.json` `lifecycle.branch_protection` defaults to `main`. Halt with a clear diagnostic if any repo is on a feature branch.
 
 6. **REGISTRY_REACHABILITY guard:** Probe each unique registry URL across all packages. If any is unreachable, warn-only (publishes will fail later if still unreachable).
 
@@ -336,7 +336,7 @@ For EACH `repo` in `$CFG.repos` where `publishes: true`:
 
 #### 3.1 Read the repo's lifecycle config
 
-Read `<repo.path>/.bee/config.json` `lifecycle` block. This was already validated to exist by Step 1 guard 3.
+Read `<repo.path>/.wasp/config.json` `lifecycle` block. This was already validated to exist by Step 1 guard 3.
 
 Extract `lifecycle.packages` array. For each declared package, capture `name`, `dir`, `tag_pattern`, `workflow`, and current `version` (from `<repo.path>/<pkg.dir>/package.json`).
 
@@ -811,7 +811,7 @@ repos:
     pollinate_initialized: bool  # cached state from Step 0.2 — re-verified at runtime
     branch: string          # default branch for pushes (default: "main" for publishers, "dev" for consumers based on settings)
     packages:
-      - string              # npm package name (must match a package declared in repo's .bee/config.json lifecycle.packages)
+      - string              # npm package name (must match a package declared in repo's .wasp/config.json lifecycle.packages)
 
 edges:
   - from: string            # upstream package name

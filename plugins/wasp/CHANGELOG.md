@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.0] - 2026-05-14 — Wasp state moves to `.wasp/` namespace (fixes cross-namespace leak)
+
+Pre-v1.3.0, pollinate's per-repo state (credentials + lifecycle config) was stored in `.bee/` even though pollinate is a wasp command. The original `_BeeUpgrade/commands/pollinate.md` (from which wasp v1.0.0 inherited pollinate) was written assuming bee would absorb pollinate upstream, so it parked state in bee's namespace. That assumption never materialized; v1.3.0 corrects the leak.
+
+### Changed (breaking — with auto-migration)
+- **Pollinate state location:**
+  - `.bee/pollinate-credentials/` → `.wasp/pollinate-credentials/`
+  - `.bee/config.json` `lifecycle:` block → `.wasp/config.json` (still wrapped under a `lifecycle:` key; same shape, different file)
+- **Step 0.1 detection logic** now checks `.wasp/` first (canonical), falls back to `.bee/` (legacy) and offers automatic migration on detection. Migration is non-destructive: bee's other fields (`stacks`, `implementation_mode`, etc.) in `.bee/config.json` are preserved; only the `lifecycle:` key is removed and rewritten to `.wasp/config.json`.
+- **Step 0.5 D1 (gitignore step)** now ensures `.wasp/` is in `.gitignore` (the new state location), in addition to `.secrets/`. `.bee/` ignore status is now purely a bee-side concern — pollinate no longer depends on it.
+- **Step 1 NO_LIFECYCLE_CONFIG guard, Step 2 config load,** and every other reference to `.bee/config.json` / `.bee/pollinate-credentials/` updated to use the `.wasp/` paths.
+- **`/wasp:cross-pollinate` Step 1 guard 3** updated: REPO_POLLINATE_INITIALIZED now checks `<repo.path>/.wasp/pollinate-credentials/pollinate-credentials.md`.
+- **Schema appendix** examples updated to reference `.wasp/config.json` as the canonical config location.
+
+### Migration UX
+On first run of `/wasp:pollinate` (or `/wasp:cross-pollinate`) after upgrading to 1.3.0 in a project with the legacy layout, pollinate prompts:
+```
+⚠ Detected legacy pollinate layout (pre-v1.3.0):
+  Found: .bee/pollinate-credentials/pollinate-credentials.md
+  Found: .bee/config.json with `lifecycle:` block
+
+AskUserQuestion(
+  question: "Migrate to the new .wasp/ layout?",
+  options: ["Yes, migrate (Recommended)", "Re-init from scratch", "Cancel"]
+)
+```
+
+The "Yes, migrate" path executes the file moves + JSON extraction inline. Idempotent; safe to re-run if interrupted.
+
+### Why this matters
+- **Cleaner ownership lines.** Wasp commands no longer write to bee's namespace. Future divergence between bee and wasp internals stays clean.
+- **Better cross-pollinate detection.** `/wasp:cross-pollinate`'s "is this repo wasp:pollinate-initialized?" check now looks at `.wasp/pollinate-credentials/` — a name that semantically matches its purpose.
+- **Forward-compatible**. Future wasp configs (e.g. mass-pollinate workspace config) can live alongside in `.wasp/` without further refactor.
+
+---
+
 ## [1.2.1] - 2026-05-14 — `target_branch` config + non-main branch support
 
 Fixes a hardcoded assumption that pollinate always pushes to `origin/main`. Now configurable per repo.

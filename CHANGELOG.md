@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.3.0] - 2026-05-14 — Wasp state moves to `.wasp/` namespace
+
+`wasp` plugin bumped to `1.3.0`. `bee` plugin unchanged at `4.5.1` (vendored upstream).
+
+### Changed (via `wasp` plugin)
+- **State directory cleanup**: pollinate's per-repo credentials + lifecycle config moved from `.bee/` to `.wasp/`. This fixes a cross-namespace leak where a wasp command was writing to bee's data folder (a hangover from the original `_BeeUpgrade` source material's assumption that pollinate would be upstreamed into bee).
+- **Auto-migration on first run**: pollinate's Step 0.1 detects legacy `.bee/` layout and offers a non-destructive migration. Bee's other config fields (`stacks`, `implementation_mode`, etc.) in `.bee/config.json` are preserved untouched; only the `lifecycle:` key is moved into a new `.wasp/config.json` file.
+- Cross-pollinate's per-member-repo init check updated to look at `.wasp/pollinate-credentials/` instead of `.bee/`.
+
+See [`plugins/wasp/CHANGELOG.md`](plugins/wasp/CHANGELOG.md) v1.3.0 for the full migration details.
+
+### Unchanged
+- `bee` plugin pristine at 4.5.1.
+- `/bee:*` commands keep using `.bee/` as before — they're bee's commands operating on bee's data.
+- Wasp's audit-spec lifecycle commands (`/wasp:audit-prep`, `/wasp:bundle-audit-specs`, `/wasp:unify-audit-specs`) still operate on `.bee/audit-specs/` — that's bee-owned data; wasp commands manipulate it but don't own it.
+
+---
+
 ## [1.2.1] - 2026-05-14 — `target_branch` config + non-main branch support
 
 `wasp` plugin bumped to `1.2.1`. `bee` plugin unchanged at `4.5.1` (vendored upstream).

@@ -1,6 +1,6 @@
 {
   "name": "wasp",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Workspace-Aware Spec-based Publisher — an additive layer on top of the bee plugin. Ships /wasp:audit-prep + /wasp:bundle-audit-specs + /wasp:unify-audit-specs + /wasp:pollinate (multi-package monorepo aware, per-package change detection, registry/token/scope validation, ✅ live publish polling, SemVer-correct bumping) + /wasp:cross-pollinate (cross-repository cascade orchestration with dep-graph traversal, topo-sorted serial execution, and downstream dep-pin updates).",
   "author": {
     "name": "AncientHodler-Demiurg",
