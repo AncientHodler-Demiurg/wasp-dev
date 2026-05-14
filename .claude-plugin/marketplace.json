@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "wasp-dev",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "WASP (Workspace-Aware Spec-based Publisher) — a fork of bee-dev that ships the upstream bee plugin (vendored unmodified) alongside a wasp plugin layering an audit-to-publish lifecycle (audit-prep, bundle/unify-audit-specs, pollinate) on top — with multi-package and cross-repository cascade publishing landing in subsequent versions.",
   "owner": {
     "name": "AncientHodler-Demiurg",
@@ -21,7 +21,7 @@
     {
       "name": "wasp",
       "description": "Workspace-Aware Spec-based Publisher — additive layer on top of bee. Adds /wasp:audit-prep, /wasp:bundle-audit-specs, /wasp:unify-audit-specs, /wasp:pollinate (multi-package monorepo aware), and /wasp:cross-pollinate (cross-repository cascade orchestration across a workspace of linked repos).",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "author": {
         "name": "AncientHodler-Demiurg"
       },

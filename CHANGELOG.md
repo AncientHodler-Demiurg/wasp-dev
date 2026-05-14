@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.2.1] - 2026-05-14 — `target_branch` config + non-main branch support
+
+`wasp` plugin bumped to `1.2.1`. `bee` plugin unchanged at `4.5.1` (vendored upstream).
+
+### Added (via `wasp` plugin)
+- `/wasp:pollinate` lifecycle config gains a new `target_branch` field. Pollinate's push step now respects this instead of hardcoding `origin/main`. Auto-detected from the git remote's default branch during the wizard; overridable to any branch (e.g. `dev` for consumer apps like OuronetUI).
+- Example in schema appendix: "Consumer app on a non-main branch" showing the `target_branch: "dev"` pattern with `version_file_path` pointing at `src/constants/version.ts`.
+
+### Unchanged
+- `bee` plugin pristine at 4.5.1.
+- Existing configs without `target_branch` continue to work — defaults to `"main"` for backwards compatibility.
+
+---
+
 ## [1.2.0] - 2026-05-14 — `/wasp:cross-pollinate` cross-repository cascade
 
 `wasp` plugin bumped to `1.2.0`. `bee` plugin unchanged at `4.5.1` (vendored upstream).

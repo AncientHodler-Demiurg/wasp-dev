@@ -747,6 +747,23 @@ AskUserQuestion(
 
 For `release_title_pattern`, ask similarly. If `tag_pattern` has a prefix, suggest dropping it for the title (e.g. tag `ts-v3.1.0` displays as Release `v3.1.0`).
 
+For `target_branch` (where pollinate pushes), auto-detect first via `git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@'` then ask:
+
+```
+AskUserQuestion(
+  question: "Push target branch? Detected default: {$DETECTED_DEFAULT_BRANCH}",
+  options: [
+    "{$DETECTED_DEFAULT_BRANCH}  (Recommended — repo's default branch)",
+    "main",
+    "master",
+    "dev",
+    "Custom branch name"
+  ]
+)
+```
+
+The auto-detected default usually matches the repo's GitHub default branch setting. Override is useful for repos that integrate on `dev` (e.g. consumer apps using a dev-branch workflow) instead of `main`.
+
 Display the proposed config in full, then:
 ```
 AskUserQuestion(
@@ -897,6 +914,7 @@ Resolve repo-level defaults:
 |---|---|---|
 | `publishes_to_npm` | `true` (already gated above) | Master switch for npm steps |
 | `version_model` | `"uniform"` | `"uniform"` = all queued packages bump to a shared tag version; `"independent"` deferred to v1.2.0+ |
+| `target_branch` | auto-detected from `git symbolic-ref refs/remotes/origin/HEAD` (typically `"main"`, sometimes `"master"` or `"dev"`) | Branch pollinate pushes its release commits to. Per-repo configurable; OuronetUI-style apps that work on `dev` set this to `"dev"`. |
 | `tag_message_source` | `"changelog"` | One of `"changelog"`, `"manual"`, `"both"` |
 | `backfill_on_publish` | `true` | Compute missing prior Releases and create them via REST |
 | `wait_for_ci_seconds` | `600` | Max wait for CI publish workflow |
@@ -926,6 +944,7 @@ Display the resolved config to the user:
 Pollinate config (effective):
   repo_type:             {$REPO_TYPE}
   version_model:         {version_model}
+  target_branch:         {target_branch}
   packages:              {len($PACKAGES)} declared
     [1] {pkg.name}        ({pkg.dir})  → tag: {pkg.tag_pattern}  workflow: {pkg.workflow}
     [2] {pkg.name}        ({pkg.dir})  → tag: {pkg.tag_pattern}  workflow: {pkg.workflow}
@@ -1327,7 +1346,13 @@ Tag annotation body for {shared_tag_name}  ({lines} lines, {bytes} bytes):
 
 AskUserQuestion: Yes proceed / Edit it / Cancel. (Skipped if `--batch-approve` is set and the user already accepted the full plan.)
 
-### Step 6: Push to origin/main
+### Step 6: Push to origin/{target_branch}
+
+The push target is `$CFG.target_branch` — the branch this repo's pollinate runs publish from. Set during the wizard's Stage D2 (auto-detected from `git symbolic-ref refs/remotes/origin/HEAD` with user confirmation). Common values:
+- `"main"` (typical default for npm-package and library repos)
+- `"dev"` (consumer apps and projects where dev is the integration branch — e.g. OuronetUI)
+- `"master"` (legacy repos pre-2020 default-branch convention)
+- Any custom branch name
 
 Per `$CFG.branch_protection`:
 
@@ -1335,11 +1360,11 @@ Per `$CFG.branch_protection`:
 
 1. Run `git fetch origin` to refresh remote refs.
 
-2. Determine if the current branch can fast-forward to `origin/main`:
-   - If `$CURRENT_BRANCH` is `main`: simply `git push origin main`.
-   - If `$CURRENT_BRANCH` is a feature branch (e.g. `claude/foo-a04cb2`): check whether HEAD is a fast-forward of `origin/main` via `git merge-base origin/main HEAD == origin/main` (i.e. main has not advanced past the branch's base). If yes, push HEAD to main: `git push origin {HEAD_SHA}:refs/heads/main`. If no, the branch has diverged — fall back to `"pr-required"` flow.
+2. Determine the push target.
+   - If `$CURRENT_BRANCH == $CFG.target_branch`: simply `git push origin <target_branch>` — the most common case (developer is already on the target branch).
+   - If `$CURRENT_BRANCH` is different from `$CFG.target_branch` (e.g. on a feature branch `claude/foo-a04cb2` while target is `main`): check whether HEAD is a fast-forward of `origin/<target_branch>` via `git merge-base origin/<target_branch> HEAD == origin/<target_branch>` (i.e. target hasn't advanced past the branch's base). If yes, push HEAD to target: `git push origin {HEAD_SHA}:refs/heads/<target_branch>`. If no, the branch has diverged — fall back to `"pr-required"` flow.
 
-3. Also push the feature branch itself (so the audit trail shows both): `git push origin {$CURRENT_BRANCH}`.
+3. Also push the feature branch itself if it differs from `$CFG.target_branch` (so the audit trail shows both): `git push origin {$CURRENT_BRANCH}`.
 
 4. On push failure (e.g. branch protection rejects, force-push not allowed), surface the error and switch to `"pr-required"` flow.
 
@@ -1347,23 +1372,23 @@ Per `$CFG.branch_protection`:
 
 1. Push the feature branch: `git push origin {$CURRENT_BRANCH}`.
 
-2. Display the PR URL hint: `https://github.com/{repo}/pull/new/{$CURRENT_BRANCH}`.
+2. Display the PR URL hint: `https://github.com/{repo}/pull/new/{$CURRENT_BRANCH}?expand=1&base={$CFG.target_branch}`.
 
 3. AskUserQuestion(
-     question: "Branch pushed. Create PR + merge before continuing?",
+     question: "Branch pushed. Create PR + merge into {$CFG.target_branch} before continuing?",
      options: ["I'll merge then return", "Continue without merging (tag from feature branch)", "Cancel", "Custom"]
    )
 
    If "I'll merge then return": halt and tell the user to invoke `/wasp:pollinate` again after the PR is merged. The command is idempotent — safe to re-run.
 
-   If "Continue without merging": warn that the GitHub Release will point at a non-main commit; if `$CFG.tag_pattern` is `"v{version}"` (no prefix), this can be confusing. Get explicit confirm.
+   If "Continue without merging": warn that the GitHub Release will point at a non-target_branch commit; if `$CFG.tag_pattern` is `"v{version}"` (no prefix), this can be confusing. Get explicit confirm.
 
 #### Display result
 
 ```
 Pushed:
-  feature branch: {$CURRENT_BRANCH} → origin/{$CURRENT_BRANCH}
-  main:           {HEAD_SHA[:8]} → origin/main (fast-forward)
+  feature branch: {$CURRENT_BRANCH} → origin/{$CURRENT_BRANCH}    (only if differs from target_branch)
+  target branch:  {HEAD_SHA[:8]} → origin/{$CFG.target_branch}  (fast-forward)
 ```
 
 ### Step 7: Create + Push Annotated Tag(s)
@@ -1737,6 +1762,7 @@ Add to `.bee/config.json`. Two schema modes are supported.
     "publishes_to_npm": true,
     "version_source": "package_json",
     "version_model": "uniform",
+    "target_branch": "main",
     "packages": [
       {
         "name": "@scope/pkg-name",
@@ -1804,6 +1830,7 @@ Pollinate auto-detects which mode is in use: if `packages: [...]` is a non-empty
 | `version_model` | `"uniform"` \| `"independent"` (deferred to v1.2.0+) | Multi-package mode only |
 | `packages` | array of package entries (see below) | Multi-package mode |
 | `tag_message_source` | `"changelog"` \| `"manual"` \| `"both"` | Always |
+| `target_branch` | string — branch pollinate pushes to | Always; defaults to detected default branch |
 | `backfill_on_publish` | bool | Always |
 | `ci_workflow_skip` | bool | Always |
 | `wait_for_ci_seconds` | number | Only when `ci_workflow_skip = false` |
@@ -1961,6 +1988,7 @@ The user runs `npm publish` outside of pollinate; pollinate just handles git ope
   "release_title_pattern": "v{version}",
   "tag_message_source": "changelog",
   "changelog_path": "CHANGELOG.md",
+  "target_branch": "main",
   "backfill_on_publish": true,
   "ci_workflow_skip": true,
   "branch_protection": "fast-forward"
@@ -1968,6 +1996,27 @@ The user runs `npm publish` outside of pollinate; pollinate just handles git ope
 ```
 
 Documentation repos, research notes, internal tooling, anything that wants version + tag + GitHub Release ceremony without any package registry. Pollinate skips B7+B8+B9 (npm-token setup), Step 4c (npm-tarball README), Step 8 (CI publish), Step 9a (npm registry verify), and Step 9d (GitHub Packages mirror). Only Steps 6 (push), 7 (tag), 9b/9c (GitHub Release) and 10 (backfill) run from the publish pipeline.
+
+**Consumer app on a non-main branch** (e.g. OuronetUI working on `dev`):
+
+```json
+"lifecycle": {
+  "repo_type": "plain",
+  "publishes_to_npm": false,
+  "version_source": "version_file",
+  "version_file_path": "src/constants/version.ts",
+  "tag_pattern": "v{version}",
+  "release_title_pattern": "v{version}",
+  "tag_message_source": "changelog",
+  "changelog_path": "src/constants/changelog.ts",
+  "target_branch": "dev",
+  "backfill_on_publish": false,
+  "ci_workflow_skip": true,
+  "branch_protection": "fast-forward"
+}
+```
+
+The `target_branch: "dev"` change is the key: pollinate pushes to `origin/dev`, not `origin/main`. Useful for consumer-app workflows where `dev` is the integration branch and there's no formal merge-to-main release process. The `version_file_path` can point at a TypeScript constants file if your version lives in code rather than in package.json.
 
 **Plain repo with git-tag-based versioning** (no VERSION file):
 

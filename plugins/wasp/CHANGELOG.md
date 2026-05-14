@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.2.1] - 2026-05-14 — `target_branch` config + non-main branch support
+
+Fixes a hardcoded assumption that pollinate always pushes to `origin/main`. Now configurable per repo.
+
+### Added
+- **New lifecycle field: `target_branch`** (string). Specifies the branch pollinate pushes its release commits to. Auto-detected via `git symbolic-ref refs/remotes/origin/HEAD` during the bootstrap wizard; user confirms or overrides. Useful for consumer apps that work on `dev` (e.g. OuronetUI) instead of `main`.
+- **Wizard D2 prompt**: new AskUserQuestion asking for `target_branch` with the auto-detected default as the recommended option, plus `main`/`master`/`dev`/custom alternatives.
+- **New example in the schema appendix**: "Consumer app on a non-main branch" showing OuronetUI-style config with `target_branch: "dev"`.
+
+### Changed
+- **Step 6 rewritten** to use `$CFG.target_branch` everywhere it previously hardcoded `"main"`. The fast-forward push logic, PR-required fallback, and display strings now all respect the configured target.
+- **Schema field reference**: documents `target_branch` and updates `branch_protection` description for clarity.
+
+### Notes
+- Backwards compatible: if `target_branch` is absent in an existing config, pollinate defaults to `"main"` (same as v1.2.0 behavior).
+- Existing pollinate-credentials.md files don't need to be regenerated; the wizard's Bm.5 fast-path re-validation reads `target_branch` from the lifecycle config directly.
+
+---
+
 ## [1.2.0] - 2026-05-14 — `/wasp:cross-pollinate` cross-repository cascade
 
 Ships the cross-repository orchestrator. Where `/wasp:pollinate` v1.1.0 handles one repo's multi-package monorepo publish, `/wasp:cross-pollinate` walks a dependency graph across MULTIPLE linked repositories and republishes in topo-sorted order, with downstream dep-pin updates between hops.
