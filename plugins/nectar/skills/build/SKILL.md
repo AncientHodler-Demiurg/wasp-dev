@@ -29,18 +29,43 @@ Bug fix mid-build? Reproduce it as a failing test first, then fix — same loop.
 
 Without a plan, the work closes the way a wave closes: run the full test suite once, then the project's lint and typecheck commands when it has them, before declaring the work done.
 
+## Red flags
+
+These thoughts mean STOP — each is the exact rationalization that precedes a skipped step:
+
+| Thought | Reality |
+|---------|---------|
+| "This change is too simple to test first" | Simple changes break too. The loop is the same five steps at any size. |
+| "I'll write the tests after this batch" | Test-after proves nothing — delete the code, restart from step 1. |
+| "The subagent said it passed" | A claim is not verification. Re-run its test files yourself. |
+| "It should work now" | Run it. "Should" is a hypothesis, not a wave close. |
+| "I'll tick the boxes at the end of the session" | Tick at the moment of verification, or the next session resumes from a lie. |
+| "The plan says X but Y is better — I'll just do Y" | Repair plan.md first, then build Y. Silent deviation kills resumability. |
+
+## Project commands
+
+Determine once per session the project's test command with its per-file invocation syntax, plus its lint and typecheck commands when the project has them. If the project's CLAUDE.md does not already record these commands, offer a short addition — every future session then skips the rediscovery. Write it only with the user's approval.
+
 ## Wave execution
 
 When executing a plan.md:
 
 - Read the plan and find the first wave containing unchecked `- [ ]` tasks — that is where execution starts (or resumes).
-- Execute waves strictly in order. Wave N+1 starts only when every task in wave N is done or has failed.
+- Execute waves strictly in order. A wave closes when every one of its tasks is done or has failed; a failure lets its wave-siblings finish but blocks every later wave (see Failure handling).
 - **Overlap check before dispatch:** compare the `- files:` lists of the wave's unchecked tasks. Any shared path forces serial execution of the overlapping tasks; only the disjoint remainder runs in parallel. Do not rely on the plan being freshly generated — the codebase may have drifted since it was written.
-- **Within a wave:** if more than one unchecked task remains after the overlap check, dispatch one subagent per unchecked task via the Agent tool, all spawned in a single message so they run in parallel. A wave of one task is executed directly, no subagent. Before dispatching, determine once the project's test command with its per-file invocation syntax, plus its lint and typecheck commands when the project has them — every subagent prompt carries the test command; lint and typecheck stay with you for the wave close.
-- **Each subagent's prompt includes:** its task line from plan.md verbatim — the `T<n>` ID, description, and "done when" criteria — its indented `- files:` list, the path to `docs/work/<topic>/design.md`, the five TDD loop steps and the read-before-write rule written out in full (subagents never see this skill file, so "the loop above" means nothing to them), and the test command with per-file syntax plus the instruction to run only its own task's test files, never the full suite.
+- **Within a wave:** dispatch the disjoint tasks — one `nectar:implementer` agent per task via the Agent tool — in a single message so they run in parallel. Tasks the overlap check forced serial run after that parallel batch returns, one at a time in plan order, each as its own dispatch. A wave that reduces to one task is executed directly, no subagent. Every dispatch carries the test command; lint and typecheck stay with you for the wave close.
+- **Each implementer's prompt carries only the task payload:** its task line from plan.md verbatim — the `T<n>` ID, description, and "done when" criteria — its indented `- files:` list, the path to `docs/work/<topic>/design.md`, and the test command with per-file syntax. The TDD loop, read-before-write, test-intent, and scope rules are baked into the agent — do not restate them. If the nectar agent types are unavailable in the session, fall back to a general-purpose agent and write out in full: the five TDD loop steps, the read-before-write rule, the test-intent rule, the file-scope rule (touch only the task's `- files:` list), the run-only-your-own-test-files instruction, the bans on editing plan.md and on running any state-changing git command, the failure stop (two honest fix attempts, then report with quoted output), and the report format (per-criterion met/not-met, files touched, quoted final test output). A fallback prompt missing any of these is a broken dispatch.
 - Subagents report results in their final message. You are the sole writer of plan.md — subagents never edit it.
-- **After all subagents in a wave return:** first re-verify each task's "done when" criteria yourself — re-run its test files; a subagent's claim of success is not verification. Then run the full test suite once, and the project's lint and typecheck commands when it has them. Tick the verified tasks only after all of these are green. If the suite is red from cross-task interaction, no task in the wave gets ticked until the regression is attributed to a specific task; fix or revert that task, then re-verify and re-run the suite.
+- **When a wave finishes — whether its tasks ran as subagents or directly:** first re-verify each task's "done when" criteria yourself — re-run its test files; an implementer's claim of success is not verification. Then run the full test suite once, and the project's lint and typecheck commands when it has them. Tick the verified tasks only after all of these are green. Green is a quoted observation, not a feeling: quote the final summary line of each run (e.g. `42 passed, 0 failed`) when reporting the wave close in conversation — plan.md stays checkbox-only, and a close without quoted output has not happened. If the suite is red from cross-task interaction, no task in the wave gets ticked until the regression is attributed to a specific task; fix or revert that task per Failure handling, then re-verify and re-run the suite.
 - Do not pause between waves to ask "continue?" — proceed automatically to the next wave until the plan is done or a task fails.
+
+## Plan drift
+
+The plan is a prediction; the code is reality. When execution reveals the plan is wrong — a task turns out obsolete, a missing task surfaces, the designed approach no longer fits what the code shows — stop dispatching and repair the artifact first:
+
+- Edit plan.md: strike the obsolete task by rewriting its line as `- [x] ~~T4: ...~~ struck: <reason>` — the box is ticked because ticked means "requires no further work"; the strikethrough and reason record that it was removed, not built. Add new tasks with their files and "done when" criteria, or rewrite the affected task. Re-check the wave partition around the edit — a new task's files may collide with tasks already in flight.
+- If the divergence changes what the feature is — its scope, its behavior, an acceptance criterion — update design.md too, and tell the user what changed and why before continuing.
+- Then resume execution against the updated plan. Never build the deviation while the plan still says otherwise: orient and review both trust these files, and an artifact that lies is worse than no artifact.
 
 ## Progress
 

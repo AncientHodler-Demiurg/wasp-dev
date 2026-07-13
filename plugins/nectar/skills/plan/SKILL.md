@@ -17,6 +17,7 @@ Decompose the design into tasks. Each task:
 - **Exact file paths.** Name every file the task creates or modifies, with full paths from the repo root. "Update the auth layer" is not a task; "modify `src/auth/session.ts` to expire tokens after 24h" is.
 - **Acceptance criteria phrased as "done when: <condition>".** The condition must be independently checkable: a command that passes, a behavior someone can observe, a file with specific content. If you cannot say how to check it, the criterion is not done.
 - **Tests are part of the task, not a separate task.** A task's tests live in the same task as its implementation, named with their file path, each stating the actual behavior verified.
+- **Executable by a stranger.** Write each task for an implementer who sees only plan.md, design.md, and the code — zero conversation context. Anything decided in this conversation that the task depends on goes into the task line itself; "as discussed" is a dangling reference.
 
 No placeholders. These are plan failures — never write them:
 
@@ -51,7 +52,7 @@ Write `docs/work/<topic>/plan.md` in exactly this format:
 
 - Task IDs are sequential (T1, T2, ...) across the whole plan, not per wave.
 - Each task line carries its description, file paths, and criteria on that line or as indented continuation under its checkbox.
-- The checkboxes are the progress state. No status column, no separate tracking file, no progress notes anywhere else — a checked box means done, an unchecked box means pending, and nothing else records progress.
+- The checkboxes are the progress state. No status column, no separate tracking file, no progress notes anywhere else — a checked box means the task requires no further work (built and verified, or struck during build's plan-drift repair), an unchecked box means pending, and nothing else records progress.
 
 ## Right-sizing
 

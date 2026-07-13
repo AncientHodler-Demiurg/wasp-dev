@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "bee-dev",
-  "version": "1.10.2",
+  "version": "1.11.0",
   "description": "Spec-driven development workflow plugins for Claude Code — includes the Bee Hive live dashboard with live agent activity feed for browsing phases, reports, hook events, and workflow state in a readable web UI",
   "owner": {
     "name": "Beecoded",
@@ -20,8 +20,8 @@
     },
     {
       "name": "nectar",
-      "description": "The essence of spec-driven development distilled into 8 pure skills — shape, plan, build, review, debug, audit, capture, orient. No commands, no state machine, no ceremony: plain artifacts in docs/work/ are the only state.",
-      "version": "0.2.0",
+      "description": "The essence of spec-driven development distilled into 9 skills and 3 enforcement agents — shape, plan, build, review, honey, debug, audit, capture, orient. No commands, no state machine: plain artifacts in docs/work/ are the only state, discipline is enforced by read-only agents and fresh contexts, and 'drop the honey' delivers a feature end-to-end from a single confirmation.",
+      "version": "1.0.0",
       "author": {
         "name": "Beecoded"
       },

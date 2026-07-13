@@ -13,6 +13,16 @@ No fixes on hypothesis alone. A fix may be written only after the root cause has
 
 Pattern-matching a symptom to a familiar failure is a hypothesis, not a diagnosis — however strong the resemblance, however many times this exact symptom meant that exact cause before. "It's probably X, let me just fix it", "quick fix now, investigate later", "try this and see if it helps" are all the same violation: each is an untested hypothesis. Write it into the ranked list and test it like any other. Confidence is not evidence.
 
+These thoughts mean the gate is about to be violated:
+
+| Thought | Reality |
+|---------|---------|
+| "It's obviously X, let me fix it" | That is a hypothesis. Rank it, test it. |
+| "Quick fix now, investigate later" | An untested fix is instrumentation you forgot to revert. |
+| "The symptom vanished — done" | Vanished under a touch is evidence, not repair. Revert, record, fix via regression-first. |
+| "Can't reproduce it, but this code looks wrong" | Looks-wrong is not a chain link. Instrument and observe first. |
+| "Three fixes failed — one more attempt" | Dead batches mean the framing is wrong. Re-examine assumptions or stop. |
+
 ## Reproduce
 
 Get a deterministic reproduction before theorizing: a failing test, a command, or exact steps that trigger the symptom every time.
@@ -31,7 +41,7 @@ One hypothesis at a time. Never apply multiple speculative changes at once — a
 
 ## Evidence chain
 
-Record every test as hypothesis → test → result, with a verdict: confirmed, killed, or inconclusive. Killed hypotheses stay in the record — they are the audit trail that stops re-testing. An inconclusive test gets sharpened — narrower input, more instrumentation — and re-run before moving down the ranking; a hypothesis is never confirmed by an inconclusive result.
+Record every test as hypothesis → test → result, with a verdict: confirmed, killed, or inconclusive. The result is the observed output quoted — the failing assertion, the log line, the diff — never a summary of it. Killed hypotheses stay in the record — they are the audit trail that stops re-testing. An inconclusive test gets sharpened — narrower input, more instrumentation — and re-run before moving down the ranking; a hypothesis is never confirmed by an inconclusive result.
 
 The finished chain must connect symptom to root cause with no "probably" links: every link is quoted code, observed output, or a reproduced behavior. If any link is an inference, that link is the next thing to test. The hard gate stays closed until the chain is solid.
 
@@ -51,7 +61,7 @@ If the hunt may outlive the session, write `docs/work/<topic>/debug-<slug>.md` �
 
 Contents: symptom, the reproduction, the hypothesis table with verdicts and evidence, and the current frontier — the next test to run and what each outcome would mean. Update it after every verdict once it exists.
 
-Resume by reading the file, never by re-deriving. Dead hypotheses stay dead; the frontier is where work restarts. Delete the file after the full suite is green and the commit is suggested; if the user declines the commit, the file stays.
+Resume by reading the file, never by re-deriving. Dead hypotheses stay dead; the frontier is where work restarts. Delete the file when the user accepts the fix commit; if the commit is declined, the file stays.
 
 ## Arriving from build, review, or audit
 

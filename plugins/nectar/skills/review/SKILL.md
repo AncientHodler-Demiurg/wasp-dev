@@ -8,11 +8,11 @@ description: Use after implementation is complete, or whenever the user asks to 
 Review the change at hand — never the whole codebase. Resolve the diff scope by precedence:
 
 1. Files the user explicitly named.
-2. The union of `- files:` lists from the topic plan.md's ticked tasks.
+2. The union of `- files:` lists from the topic plan.md's ticked, non-struck tasks (a struck task — `~~...~~ struck:` — was removed, not built) — the topic the conversation is about; if several topics are open and the target is ambiguous, ask.
 3. Uncommitted work — staged + unstaged + untracked (`git diff HEAD` plus `git status`).
 4. Clean tree: commits on this branch since its merge-base with the main branch.
 
-State the resolved scope back to the user in one line before lensing.
+If none of the four yields files — a clean tree on the main branch with nothing named — say there is nothing to review and stop. Otherwise state the resolved scope back to the user in one line before lensing.
 
 The pipeline is fixed: lenses produce findings → deduplicate → adversarially validate → fix CONFIRMED only → re-review until a full-scope, full-lens-set pass yields zero CONFIRMED findings. No step may be skipped; no finding may jump ahead.
 
@@ -21,8 +21,10 @@ The pipeline is fixed: lenses produce findings → deduplicate → adversarially
 Scale the lens set to the diff. Trivial-scale work gets the ≤3-file treatment with an inline report.
 
 - **≤3 files:** 2 lenses — correctness + conventions — run inline.
-- **≤15 files:** 3 lenses minimum — add tests; add security when the diff touches input, auth, or data paths. Inline or subagents, your call.
-- **Larger:** all 5 lenses — add performance — and dispatch one subagent per lens via the Agent tool, all spawned in a single message so they run in parallel.
+- **4–15 files:** 3 lenses minimum — add tests; add security when the diff touches input, auth, or data paths. Inline or `nectar:lens` agents, your call.
+- **16+ files:** all 5 lenses — add performance — and dispatch one `nectar:lens` agent per lens via the Agent tool, all spawned in a single message so they run in parallel.
+
+The set selected here is the diff's lens set — "full-lens-set" anywhere in this skill means exactly this set.
 
 A lens pass produces findings only — never edits — regardless of who runs it, inline or subagent.
 
@@ -34,7 +36,7 @@ Lens definitions:
 - **tests:** do they verify behavior, not implementation
 - **performance:** N+1, unnecessary work in hot paths
 
-**Each lens subagent's prompt includes:** the diff scope (the explicit file list or git range), its lens definition line from above, the finding format block and the severity scale written out in full (subagents never see this skill file), and the instruction to report findings only in that format — no fixes, no file edits. One lens per subagent; straying outside its lens or scope produces noise, not coverage.
+**Each lens agent's prompt carries only:** the diff scope (the explicit file list or git range) and its lens definition line from above. The finding format, severity scale, and evidence rules are baked into the `nectar:lens` agent — read-only by construction, so "no fixes" is enforced, not requested. If the nectar agent types are unavailable in the session, fall back to a general-purpose agent and write out in full: the finding format block, the severity scale, the evidence rules (report only what you can quote from code actually read; zero findings is a valid result), and the findings-only instruction. One lens per dispatch; straying outside its lens or scope produces noise, not coverage.
 
 Report only findings with real evidence behind them — vague findings die in validation anyway.
 
@@ -65,6 +67,8 @@ Before validating, merge duplicates across lenses: same file + line + root cause
 
 ## Adversarial validation
 
+Validation runs in a fresh context whenever the diff is beyond the ≤3-file tier: dispatch the deduplicated findings, grouped by file, to `nectar:validator` agents — in parallel, all spawned in a single message. A reviewer validating its own findings inherits its own blind spots; the fresh context that did not author the finding is the point, not an implementation detail. Each validator prompt carries only the findings themselves — verdict definitions, severity scale, and the validation-note requirement are baked into the agent. If the nectar agent types are unavailable, fall back to general-purpose agents and write out in full: the verdict definitions, the severity scale, the four-step procedure below, the lean-REFUTED rule, and the validation-note requirement. ≤3-file diffs may validate inline, using the procedure below directly.
+
 For EVERY finding — no exceptions, however obvious — actively try to refute it:
 
 1. **Read the actual code** at the cited location, plus surrounding context.
@@ -84,18 +88,21 @@ Every verdict carries a one-line validation note naming what was checked — CON
 
 A finding without quotable evidence is REFUTED by definition. Validation is mandatory — an unvalidated finding must never reach the fix step. When genuinely ambiguous, lean REFUTED: a wrong fix costs more than a missed nitpick, and the re-review catches anything real.
 
+A validation round that confirms every finding, with zero refutations and zero severity adjustments, usually means the refutation attempt never happened — re-examine the two weakest findings before accepting the round.
+
 ## Fix loop
 
 1. Fix CONFIRMED findings only. Minimal targeted edits, one finding at a time — never batch unrelated fixes, never "improve" beyond what the finding requires.
 2. Present STYLISTIC findings to the user as a choice: fix or leave. Apply only what the user picks.
 3. **Any applied edit resets the loop** — a CONFIRMED fix and a user-chosen STYLISTIC fix alike. The clean pass must postdate the last edit of any kind.
 4. Re-review with the same validation discipline. Intermediate rounds may narrow scope to the changed areas and the lenses that produced the confirmed findings — but the terminal pass is always full-scope, full-lens-set.
-5. The loop ends only when that full-scope, full-lens-set pass yields zero CONFIRMED findings AND the full test suite — plus the project's lint and typecheck commands when it has them — has run green after the last applied edit. A clean lens pass over code that fails its own suite is not clean.
-6. **Circuit breaker:** if a finding survives 2 fix rounds, or a fix regresses something else, stop — report the current state to the user and hand off to the debug skill. No brute-force fix loops.
+5. The loop ends only when that full-scope, full-lens-set pass yields zero CONFIRMED findings AND the full test suite — plus the project's lint and typecheck commands when it has them — has run green after the last applied edit. Quote the final summary line of each run in the report; a clean pass without quoted output has not happened. A clean lens pass over code that fails its own suite is not clean.
+6. At feature or project scale, the clean pass has one more leg: **behavioral verification.** Exercise the changed flow end-to-end once against design.md's acceptance criteria — the real command, the real endpoint, the real UI — and quote the observed output in the report. Tests green is necessary, not sufficient: a suite can pass around a feature that does not actually work.
+7. **Circuit breaker:** if a finding survives 2 fix rounds, or a fix regresses something else, stop — report the current state to the user and hand off to the debug skill. No brute-force fix loops.
 
 ## Report
 
 - **Feature/project-scale work:** write `docs/work/<topic>/review.md`, overwriting any previous round. Group findings by severity (CRITICAL first); record each in the standard format plus its verdict, validation note, and resolution (fixed / user declined / discarded as REFUTED). End with the round count and the clean-pass confirmation.
 - **Quick/trivial-scale work:** present the same content inline instead of writing a file.
 
-After the clean pass, suggest a commit with a ready-made message covering the fixes. Never commit without the user's approval.
+After the clean pass, suggest a commit with a ready-made message covering the fixes. Never commit without the user's approval. When the review closes a feature- or project-scale topic — every plan.md box ticked, clean pass recorded — hand off to the honey skill's closing steps to ship the topic: changelog, final commits, folder cleanup.

@@ -11,6 +11,16 @@ Turn a raw request into work at the right scale. Clarify what the user actually 
 
 Do NOT write implementation code, scaffold projects, or create files until you have detected the scale. At feature or project scale, additionally do not implement until the user has approved a design. The only artifact shape creates is `docs/work/<topic>/design.md`, and only when scale detection says feature or project. Implementation files are allowed only after the gate clears: at trivial and quick scale, proceed directly once scale is stated.
 
+These thoughts mean the gate is about to be violated:
+
+| Thought | Reality |
+|---------|---------|
+| "It's obvious, let me just start coding" | State the scale first — one line. Then code. |
+| "The user seems in a hurry, skip the questions" | One grounded question beats an hour of building the wrong thing. |
+| "It's big, but I'll design as I go" | Feature scale without an approved design.md builds unexamined scope. |
+
+If you notice code already written with no scale stated, stop and classify now — retroactively stating the scale is cheaper than continuing unclassified.
+
 ## Backlog and existing-topic check
 
 Before asking anything:
