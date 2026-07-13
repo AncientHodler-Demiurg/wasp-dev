@@ -1,16 +1,24 @@
 # wasp-dev
 
-**WASP — Workspace-Aware Spec-based Publisher.** A Claude Code marketplace forked from [bee-dev](https://github.com/george-popescu/bee-dev) that ships the upstream `bee` plugin alongside a complementary `wasp` plugin layering an audit-to-publish lifecycle on top — and, in subsequent versions, multi-package and cross-repository cascade publishing.
+**WASP — Workspace-Aware Spec-based Publisher.** A Claude Code marketplace forked from [bee-dev](https://github.com/george-popescu/bee-dev) that ships the upstream `bee` and `nectar` plugins alongside a complementary `wasp` plugin layering an audit-to-publish lifecycle on top — with multi-package and cross-repository cascade publishing.
 
 ## What's in this marketplace
 
-Two plugins ship together. They install independently; you can use bee alone, wasp alone, or both.
+Three plugins ship together. They install independently; you can use any one alone or all three.
 
 ### `bee` plugin (vendored from upstream)
 
-The upstream [bee plugin](https://github.com/BEE-CODED/bee-dev) at version `4.5.1`, **unmodified**. Every `/bee:*` command works exactly as documented upstream. The 51 upstream commands (`/bee:init`, `/bee:new-spec`, `/bee:plan-phase`, `/bee:ship`, `/bee:audit`, `/bee:hive`, etc.) are all here.
+The upstream [bee plugin](https://github.com/BEE-CODED/bee-dev) at version `4.8.2`, **unmodified**. Every `/bee:*` command works exactly as documented upstream — the full spec-driven workflow (`/bee:init`, `/bee:new-spec`, `/bee:plan-phase`, `/bee:ship`, `/bee:audit`, `/bee:hive`, etc.), now including Bee Multi-Spec (parallel specs, per-spec memory, worktree promotion).
 
 - Folder: `plugins/bee/`
+- Upstream source: [BEE-CODED/bee-dev](https://github.com/BEE-CODED/bee-dev)
+- License: MIT (inherited)
+
+### `nectar` plugin (vendored from upstream)
+
+The upstream nectar plugin at version `1.0.0`, **unmodified**. A commandless, skills-based distillation of spec-driven development: 9 skills (shape, plan, build, review, honey, debug, audit, capture, orient) and 3 read-only enforcement agents. No state machine — plain artifacts in `docs/work/` are the only state, and "drop the honey" delivers a feature end-to-end from a single confirmation.
+
+- Folder: `plugins/nectar/`
 - Upstream source: [BEE-CODED/bee-dev](https://github.com/BEE-CODED/bee-dev)
 - License: MIT (inherited)
 
@@ -54,8 +62,9 @@ Both folders should be gitignored by default. (bee already does this for `.bee/`
 # Add this marketplace
 claude plugin marketplace add https://github.com/AncientHodler-Demiurg/wasp-dev
 
-# Install bee (upstream), wasp (additions), or both
+# Install bee (upstream), nectar (upstream), wasp (additions), or any mix
 claude plugin install bee
+claude plugin install nectar
 claude plugin install wasp
 ```
 
@@ -65,7 +74,8 @@ If you previously had `bee-dev` registered as a marketplace, you can remove it (
 
 - **Forked from:** [BEE-CODED/bee-dev](https://github.com/BEE-CODED/bee-dev) marketplace `1.9.1`, which contained `bee` plugin `4.5.1`
 - **Initial wasp-dev release:** `1.0.0` (2026-05-14)
-- **Tracking upstream:** `git remote add upstream https://github.com/george-popescu/bee-dev.git` — `git fetch upstream && git merge upstream/main` to absorb future bee releases. Conflicts should be limited to `plugins/bee/` and resolved by taking upstream verbatim.
+- **Last upstream sync:** `1.5.0` (2026-07-13) — absorbed bee-dev marketplace `1.11.0`, updating `bee` to `4.8.2` and adding the new vendored `nectar` plugin `1.0.0`.
+- **Tracking upstream:** `git remote add upstream https://github.com/george-popescu/bee-dev.git` — `git fetch upstream && git merge upstream/main` to absorb future releases. Conflicts should be limited to `plugins/bee/`, `plugins/nectar/`, and the marketplace/README/CHANGELOG metadata, and resolved by taking upstream verbatim for the vendored plugin trees.
 
 ## Versions
 
@@ -74,7 +84,8 @@ If you previously had `bee-dev` registered as a marketplace, you can remove it (
 | `1.0.0` | `4.5.1` (vendored unmodified) | `1.0.0` | Foundation: split plugins, 4 wasp commands from the audit-to-publish lifecycle, fork hygiene |
 | `1.1.0` | `4.5.1` | `1.1.0` | Multi-package detection in `/wasp:pollinate` (npm workspaces, `packages/*`, custom dirs); per-package readiness sweep + live ✅ polling |
 | `1.2.0` | `4.5.1` | `1.2.0` | `/wasp:cross-pollinate` cross-repository cascade orchestration with dep-graph traversal, topo-sorted serial execution, and downstream dep-pin updates |
+| `1.5.0` | `4.8.2` (vendored unmodified) | `1.4.4` | Upstream sync: `bee` `4.5.1`→`4.8.2` (Multi-Spec, perf passes) + new vendored `nectar` plugin `1.0.0` (skills-based autonomous delivery). `wasp` unchanged. |
 
 ## License
 
-MIT. Upstream bee plugin source under `plugins/bee/` carries upstream's MIT license unchanged. Wasp plugin source under `plugins/wasp/` is original work authored by AncientHodler-Demiurg under the same MIT license.
+MIT. Upstream `bee` and `nectar` plugin source under `plugins/bee/` and `plugins/nectar/` carries upstream's MIT license unchanged. Wasp plugin source under `plugins/wasp/` is original work authored by AncientHodler-Demiurg under the same MIT license.

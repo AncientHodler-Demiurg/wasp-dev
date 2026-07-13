@@ -20,8 +20,8 @@ const {
 
 const HEALTH_RATINGS = ['HEALTHY', 'MODERATE', 'CONCERNING', 'BROKEN'];
 
-function main() {
-  const payload = safeJsonParse(readStdinSync());
+function main(rawInput) {
+  const payload = safeJsonParse(typeof rawInput === 'string' ? rawInput : readStdinSync());
 
   if (!autoModeActive(payload)) {
     return emitVerdict(true);
@@ -79,10 +79,13 @@ function main() {
   return emitVerdict(true);
 }
 
-try {
-  main();
-} catch (err) {
-  emitVerdict(false, 'validator threw: ' + (err && err.message ? err.message : String(err)));
+if (require.main === module) {
+  try {
+    main();
+  } catch (err) {
+    emitVerdict(false, 'validator threw: ' + (err && err.message ? err.message : String(err)));
+  }
+  process.exit(0);
 }
 
-process.exit(0);
+module.exports = { main };

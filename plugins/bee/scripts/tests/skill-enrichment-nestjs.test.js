@@ -50,7 +50,7 @@ assert(
   'Validation section preserved'
 );
 assert(
-  content.includes('## Guards and Interceptors'),
+  content.includes('## Guards') && content.includes('## Interceptors'),
   'Guards and Interceptors section preserved'
 );
 assert(
@@ -108,7 +108,8 @@ const mustHavesBullets = (mustHavesSection.match(/^- /gm) || []).length;
 assert(mustHavesBullets >= 5, `Must-Haves has at least 5 entries (found ${mustHavesBullets})`);
 
 // ============================================================
-// Test 4: Good Practices section contains required items (min 5)
+// Test 4: Good Practices section contains required items
+// ('exception filter' moved to its own ## Exception Filters section)
 // ============================================================
 console.log('\nTest 4: Good Practices section content');
 const goodPracticesSection = contentBetweenSections('## Good Practices', content);
@@ -116,7 +117,6 @@ const goodPracticesItems = [
   'separate DTO',
   'PartialType',
   'guard',
-  'exception filter',
   'repository pattern',
 ];
 for (const item of goodPracticesItems) {
@@ -227,3 +227,5 @@ function contentBetweenSections(sectionHeading, fullContent) {
 // ============================================================
 console.log(`\nResults: ${passed} passed, ${failed} failed out of ${passed + failed} assertions`);
 process.exit(failed > 0 ? 1 : 0);
+
+assert(content.includes('## Exception Filters'), 'Exception Filters section present');

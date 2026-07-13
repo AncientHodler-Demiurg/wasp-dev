@@ -1,8 +1,16 @@
 #!/usr/bin/env node
-// Test: plan-phase.md and plan-review.md implement implementation_mode model-tier branching.
-// Verifies Steps 3,4,5 always use model: "sonnet" regardless of mode,
-// Step 6.2 branches economy vs quality model selection,
-// plan-review.md Step 3.2 has same branching, and clear inline comments.
+// Test: plan-phase.md and plan-review.md resolve the review/planning model tier
+// from implementation_mode via the centralized Model Selection (Reasoning) rule.
+//
+// CURRENT contract (v4.5.0+):
+//   - plan-phase.md Step 2.5 resolves $RESOLVED_MODEL ONCE from $IMPLEMENTATION_MODE
+//     via `skills/command-primitives/SKILL.md` Model Selection (Reasoning).
+//   - Planning Steps 3 and 5 reuse $RESOLVED_MODEL (no hardcoded `model: "sonnet"`).
+//   - Step 4 was REMOVED (research merged into Pass 1 / Step 3).
+//   - Step 6.2 delegates model tier to the same centralized rule.
+//   - plan-review.md Step 3.2 branches inline: economy→sonnet, quality/premium→inherit,
+//     max-critical/max→$CRITICAL_MODEL (v4.6: plan-review convergence is a critical
+//     review spot). It has not migrated to $RESOLVED_MODEL — pin what it actually does.
 
 const fs = require('fs');
 const path = require('path');
@@ -59,8 +67,8 @@ try {
 // ============================================================
 
 // Extract relevant sections
+const step2_5 = extractSection('### Step 2.5:', planPhase);
 const step3 = extractSection('### Step 3:', planPhase);
-const step4 = extractSection('### Step 4:', planPhase);
 const step5 = extractSection('### Step 5:', planPhase);
 const step6 = extractSection('### Step 6:', planPhase);
 const step6_2 = extractSection('#### 6.2:', planPhase);
@@ -68,43 +76,56 @@ const step6_2 = extractSection('#### 6.2:', planPhase);
 console.log('=== plan-phase.md ===\n');
 
 // ----------------------------------------------------------
-// Test 1: Step 3 always uses model: "sonnet" (mode-independent)
+// Test 1: Step 2.5 resolves $RESOLVED_MODEL once via Model Selection (Reasoning)
+//
+// WHY: the model tier is resolved a SINGLE time at Step 2.5 and reused. If this
+// regresses to a hardcoded tier or drops the centralized reference, every
+// downstream `$RESOLVED_MODEL` reuse points at an undefined variable.
 // ----------------------------------------------------------
-console.log('Test 1: Step 3 (phase-planner Pass 1) always uses model: "sonnet"');
+console.log('Test 1: Step 2.5 resolves $RESOLVED_MODEL via centralized Model Selection (Reasoning)');
 assert(
-  step3.includes('model: "sonnet"'),
-  'Step 3 specifies model: "sonnet" for phase-planner'
-);
-// Should NOT mention implementation_mode branching in step 3
-assert(
-  !step3.includes('implementation_mode') && !step3.includes('economy') && !step3.includes('quality'),
-  'Step 3 does not branch on implementation_mode (always sonnet)'
-);
-
-// ----------------------------------------------------------
-// Test 2: Step 4 always uses model: "sonnet" (mode-independent)
-// ----------------------------------------------------------
-console.log('\nTest 2: Step 4 (researcher) always uses model: "sonnet"');
-assert(
-  step4.includes('model: "sonnet"'),
-  'Step 4 specifies model: "sonnet" for researcher'
+  step2_5.includes('$RESOLVED_MODEL') && step2_5.includes('$IMPLEMENTATION_MODE'),
+  'Step 2.5 resolves $RESOLVED_MODEL from $IMPLEMENTATION_MODE'
 );
 assert(
-  !step4.includes('implementation_mode') && !step4.includes('economy') && !step4.includes('quality'),
-  'Step 4 does not branch on implementation_mode (always sonnet)'
+  step2_5.includes('Model Selection (Reasoning)'),
+  'Step 2.5 delegates the tier decision to the centralized Model Selection (Reasoning) rule'
+);
+assert(
+  !step2_5.includes('model: "sonnet"'),
+  'Step 2.5 does NOT hardcode model: "sonnet" (tier comes from the centralized rule)'
 );
 
 // ----------------------------------------------------------
-// Test 3: Step 5 always uses model: "sonnet" (mode-independent)
+// Test 2: Step 4 was removed (research merged into Pass 1 / Step 3)
+//
+// WHY: a re-introduced Step 4 researcher spawn would duplicate Pass 1's work
+// and re-add the cost the v4.5.0 merge eliminated.
 // ----------------------------------------------------------
-console.log('\nTest 3: Step 5 (phase-planner Pass 2) always uses model: "sonnet"');
+console.log('\nTest 2: Step 4 (separate researcher spawn) is removed');
 assert(
-  step5.includes('model: "sonnet"'),
-  'Step 5 specifies model: "sonnet" for phase-planner'
+  !/\n### Step 4: /.test(planPhase),
+  'plan-phase.md has no `### Step 4:` heading (researcher merged into Pass 1)'
 );
 assert(
-  !step5.includes('implementation_mode') && !step5.includes('economy') && !step5.includes('quality'),
-  'Step 5 does not branch on implementation_mode (always sonnet)'
+  /Step 4 removed in v4\.5\.0/.test(planPhase),
+  'plan-phase.md documents that Step 4 was removed in v4.5.0'
+);
+
+// ----------------------------------------------------------
+// Test 3: Steps 3 and 5 reuse $RESOLVED_MODEL, never hardcode sonnet
+//
+// WHY: the two planning passes must reuse the once-resolved tier; a hardcoded
+// `model: "sonnet"` here would ignore the user's implementation_mode.
+// ----------------------------------------------------------
+console.log('\nTest 3: Steps 3 and 5 reuse $RESOLVED_MODEL (no hardcoded sonnet)');
+assert(
+  step3.includes('$RESOLVED_MODEL') && !step3.includes('model: "sonnet"'),
+  'Step 3 (phase-planner Pass 1) uses $RESOLVED_MODEL and does not hardcode sonnet'
+);
+assert(
+  step5.includes('$RESOLVED_MODEL') && !step5.includes('model: "sonnet"'),
+  'Step 5 (phase-planner Pass 2) uses $RESOLVED_MODEL and does not hardcode sonnet'
 );
 
 // ----------------------------------------------------------
@@ -117,30 +138,33 @@ assert(
 );
 
 // ----------------------------------------------------------
-// Test 5: Step 6.2 economy mode uses model: "sonnet" for review agents
+// Test 5: Step 6.2 delegates the review model tier to the centralized rule
+//
+// WHY: the four review agents must get their tier from the same
+// Model Selection (Reasoning) rule rather than a copy-pasted economy/quality
+// branch that can drift out of sync with the centralized definition.
 // ----------------------------------------------------------
-console.log('\nTest 5: Step 6.2 economy mode uses model: "sonnet"');
+console.log('\nTest 5: Step 6.2 delegates review model tier to Model Selection (Reasoning)');
 assert(
-  step6_2.includes('economy') || step6_2.includes('Economy'),
-  'Step 6.2 mentions economy mode'
+  step6_2.includes('Model Selection (Reasoning)'),
+  'Step 6.2 references the centralized Model Selection (Reasoning) rule'
 );
 assert(
-  step6_2.toLowerCase().includes('economy') && step6_2.includes('model: "sonnet"'),
-  'Step 6.2 economy mode specifies model: "sonnet"'
+  step6_2.includes('implementation_mode'),
+  'Step 6.2 ties the review model tier to implementation_mode'
 );
 
 // ----------------------------------------------------------
-// Test 6: Step 6.2 quality mode omits model (inherit parent)
+// Test 6: Step 6.2 no longer inlines a hardcoded model: "sonnet" branch
+//
+// WHY: pins that the economy/quality literal branch was lifted into the
+// centralized rule — a regression that re-inlines `model: "sonnet"` here would
+// re-introduce the drift this refactor removed.
 // ----------------------------------------------------------
-console.log('\nTest 6: Step 6.2 quality mode omits model (inherits parent)');
+console.log('\nTest 6: Step 6.2 does not hardcode model: "sonnet"');
 assert(
-  step6_2.includes('quality') || step6_2.includes('Quality'),
-  'Step 6.2 mentions quality mode'
-);
-assert(
-  step6_2.toLowerCase().includes('quality') &&
-    (step6_2.includes('omit model') || step6_2.includes('omit the model') || step6_2.includes('inherit')),
-  'Step 6.2 quality mode omits model parameter (inherits parent)'
+  !step6_2.includes('model: "sonnet"'),
+  'Step 6.2 carries no hardcoded model: "sonnet" (delegated to the centralized rule)'
 );
 
 // ----------------------------------------------------------
@@ -162,21 +186,15 @@ assert(
 );
 
 // ----------------------------------------------------------
-// Test 8: Clear inline comments in plan-phase.md
+// Test 8: Step 6.2's tier delegation is mode-driven (not a bare spawn)
+//
+// WHY: confirms the spawn instruction actually conditions the tier on the mode
+// (via the centralized rule), not a flat "spawn all four" with no tier signal.
 // ----------------------------------------------------------
-console.log('\nTest 8: Clear inline comments in plan-phase.md');
+console.log('\nTest 8: Step 6.2 conditions the model tier on implementation_mode');
 assert(
-  step6_2.includes('--') || step6_2.includes('//') || step6_2.includes('('),
-  'Step 6.2 has inline comments or parenthetical explanations'
-);
-// Specifically check for explanatory text about why the branching exists
-assert(
-  step6_2.toLowerCase().includes('structured') ||
-    step6_2.toLowerCase().includes('cost') ||
-    step6_2.toLowerCase().includes('deep') ||
-    step6_2.toLowerCase().includes('cross-reference') ||
-    step6_2.toLowerCase().includes('comparison'),
-  'Step 6.2 explains rationale for mode-based model selection'
+  step6_2.includes('model tier') || step6_2.toLowerCase().includes('model selection'),
+  'Step 6.2 names the model-tier decision it delegates'
 );
 
 
@@ -243,18 +261,23 @@ assert(
 // ----------------------------------------------------------
 // Test 13: Clear inline comments in plan-review.md
 // ----------------------------------------------------------
-console.log('\nTest 13: Clear inline comments in plan-review.md');
+console.log('\nTest 13: plan-review.md Step 3.2 states the mode-dependent tier explicitly');
 assert(
   prStep3_2.includes('--') || prStep3_2.includes('//') || prStep3_2.includes('('),
   'Step 3.2 has inline comments or parenthetical explanations'
 );
+// WHY: the rationale here IS the mode→tier mapping itself — economy gets the
+// cheaper sonnet, quality/premium inherit the parent for deeper review. Pin
+// that both branches and the tier-depends-on-mode statement are present, so a
+// regression that collapses to a single tier (losing the economy discount or
+// the quality depth) fails.
 assert(
-  prStep3_2.toLowerCase().includes('structured') ||
-    prStep3_2.toLowerCase().includes('cost') ||
-    prStep3_2.toLowerCase().includes('deep') ||
-    prStep3_2.toLowerCase().includes('cross-reference') ||
-    prStep3_2.toLowerCase().includes('comparison'),
-  'Step 3.2 explains rationale for mode-based model selection'
+  prStep3_2.toLowerCase().includes('depends on `implementation_mode`') &&
+    /economy/i.test(prStep3_2) &&
+    /quality|premium/i.test(prStep3_2) &&
+    prStep3_2.includes('model: "sonnet"') &&
+    /inherit/i.test(prStep3_2),
+  'Step 3.2 maps economy→model: "sonnet" and quality/premium→inherit, tier depends on implementation_mode'
 );
 
 // ----------------------------------------------------------
@@ -270,5 +293,88 @@ assert(
 // ============================================================
 // Results
 // ============================================================
+// ============================================================
+// Phase 4 (v4.6): max-critical / max tiers in the centralized rule
+// ============================================================
+console.log('\nTest 14: max-critical/max modes in Model Selection (centralized)');
+const cpSkill = fs.readFileSync(path.join(__dirname, '..', '..', 'skills', 'command-primitives', 'SKILL.md'), 'utf8');
+const reasoning = cpSkill.substring(cpSkill.indexOf('## Model Selection (Reasoning)'), cpSkill.indexOf('## Per-Stack Agent Resolution'));
+assert(
+  reasoning.includes('"max-critical"') && reasoning.includes('"max"'),
+  'Model Selection (Reasoning) defines the max-critical and max modes'
+);
+assert(
+  reasoning.includes('criticality: high'),
+  'max-critical routes on the per-task criticality stamp'
+);
+assert(
+  reasoning.includes('config.models.critical') && reasoning.includes('"fable"'),
+  'critical model resolves from config.models.critical with the fable default (absent key -> default, additive)'
+);
+assert(
+  /fall back to omitting the `model` parameter/.test(reasoning) && /ONE-TIME notice/.test(reasoning),
+  'critical-model spawn failure falls back to inherit with a one-time notice (never blocks)'
+);
+assert(
+  /Unknown mode values never crash a consumer/.test(reasoning),
+  'unknown implementation_mode values behave as premium (consumers never crash)'
+);
+assert(
+  /under `"max"`, ALL fixers use/.test(reasoning) && /Critical or High severity OR/.test(reasoning),
+  'fixer exception extended with the precise max/max-critical trigger; always-inherit unchanged for the existing modes'
+);
+const scanning = cpSkill.substring(cpSkill.indexOf('## Model Selection (Scanning)'), cpSkill.indexOf('## Per-Stack Agent Resolution'));
+assert(
+  /max-critical.*behaves exactly as `"premium"`/s.test(scanning) || scanning.includes('behaves exactly as `"premium"`'),
+  'Scanning: max-critical behaves as premium (scanning never elevates)'
+);
+assert(
+  scanning.includes('max means everything, scanning'),
+  'Scanning: max routes scanning to the critical model too'
+);
+// criticality stamp producer (phase-planner) and consumers (execute-phase, ship)
+const plannerMd = fs.readFileSync(path.join(__dirname, '..', '..', 'agents', 'phase-planner.md'), 'utf8');
+assert(
+  plannerMd.includes('criticality: high|normal') && plannerMd.includes('Criticality stamp'),
+  'phase-planner stamps criticality: high|normal per task (mechanical routing field, plan-review-verified)'
+);
+let execMd = fs.readFileSync(path.join(__dirname, '..', '..', 'commands', 'execute-phase.md'), 'utf8');
+// v4.7: criticality routing lives in the wave-execution core execute-phase routes through.
+if (execMd.includes('skills/wave-execution/SKILL.md')) {
+  execMd += fs.readFileSync(path.join(__dirname, '..', '..', 'skills', 'wave-execution', 'SKILL.md'), 'utf8');
+}
+const shipMd = fs.readFileSync(path.join(__dirname, '..', '..', 'commands', 'ship.md'), 'utf8');
+assert(
+  execMd.includes('criticality: high') && execMd.includes('$CRITICAL_MODEL'),
+  'execute-phase routes criticality:high tasks to the critical model'
+);
+assert(
+  shipMd.includes('criticality:') && shipMd.includes('$CRITICAL_MODEL'),
+  'ship routes stamped tasks and the critical review spots to the critical model'
+);
+
+console.log('\nTest 15b: plan-review.md Step 3.2 routes the max tiers to the critical model');
+assert(
+  prStep3_2.includes('$CRITICAL_MODEL') && /[Mm]ax-critical/.test(prStep3_2),
+  'Step 3.2 passes $CRITICAL_MODEL under max-critical/max (plan-review convergence is a critical review spot)'
+);
+
+console.log('\nTest 15: init.md adaptive-ceiling mapping covers the max tiers at BOTH mapping sites');
+// init.md maps implementation_mode -> teammate context ceiling in TWO places (Step 3.7
+// step 5 and the {adaptive_ceiling} substitution note). Both must name every mode the
+// centralized rule defines, or a mode init writes to config.json has no ceiling at the
+// site where the value is actually substituted (this drifted once in v4.6 review).
+const initMd = fs.readFileSync(path.join(__dirname, '..', '..', 'commands', 'init.md'), 'utf8');
+const maxTierCeilings = initMd.match(/`max-critical` \/ `max`[^\n]*`2400000`/g) || [];
+assert(
+  maxTierCeilings.length >= 2,
+  'max-critical/max -> 2400000 appears at both ceiling-mapping sites in init.md'
+);
+const unknownCeilings = initMd.match(/any unrecognized value[^\n]*`2400000`/g) || [];
+assert(
+  unknownCeilings.length >= 2,
+  'unrecognized-mode -> 2400000 fallthrough appears at both ceiling-mapping sites in init.md'
+);
+
 console.log(`\nResults: ${passed} passed, ${failed} failed out of ${passed + failed} assertions`);
 process.exit(failed > 0 ? 1 : 0);

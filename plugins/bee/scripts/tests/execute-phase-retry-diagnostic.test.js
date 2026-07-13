@@ -37,10 +37,21 @@ function contentFrom(marker, fullContent) {
   return fullContent.substring(idx);
 }
 
-const content = fs.readFileSync(EXECUTE_PHASE_PATH, 'utf8');
+let content = fs.readFileSync(EXECUTE_PHASE_PATH, 'utf8');
+// v4.7: execute-phase routes its wave-execution core through the shared
+// wave-execution skill — the contract is pinned on the execution path.
+if (content.includes('skills/wave-execution/SKILL.md')) {
+  content += fs.readFileSync(
+    path.join(__dirname, '..', '..', 'skills', 'wave-execution', 'SKILL.md'),
+    'utf8'
+  );
+}
 const step5c = contentBetween('**5c.', '**5d.', content);
 const failureSection = contentFrom('**On failure', step5c);
-const successSection = contentBetween('**On success', '**On failure', step5c);
+const successSection = contentBetween('**On success', '**On failure', step5c) +
+  (content.includes('## Success Handling (TASKS.md Choreography)')
+    ? content.substring(content.indexOf('## Success Handling (TASKS.md Choreography)'))
+    : '');
 
 // ============================================================
 // Test 1: Transient error detection

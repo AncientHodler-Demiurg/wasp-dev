@@ -80,38 +80,49 @@ try {
 // ============================================================
 // Test 1: review.md -- plan-compliance-reviewer packet includes Requirements line
 // ============================================================
-console.log('Test 1: review.md -- plan-compliance-reviewer has Requirements line');
-const reviewPacket = extractPlanCompliancePacket(reviewContent, '4.1d:');
+console.log('Test 1: review.md path -- plan-compliance-reviewer has Requirements line (engine-owned since v4.7)');
+// review.md routes its context packets through the shared review-pipeline
+// engine; the plan-compliance packet (formerly review.md 4.1d) lives there.
+const enginePath = path.join(__dirname, '..', '..', 'skills', 'review-pipeline', 'SKILL.md');
+let engineContent = '';
+try { engineContent = fs.readFileSync(enginePath, 'utf8'); } catch (e) {
+  console.log('FAIL: review-pipeline engine skill does not exist');
+  process.exit(1);
+}
+const enginePacket = contentFromHeading('## Context Packets', engineContent);
 assert(
-  reviewPacket.includes('Requirements:'),
+  reviewContent.includes('skills/review-pipeline/SKILL.md') &&
+    reviewContent.includes('Context Packets'),
+  'review.md routes context packets through the review-pipeline engine'
+);
+assert(
+  enginePacket.includes('Requirements:'),
   'review.md plan-compliance-reviewer context packet contains "Requirements:" line'
 );
 assert(
-  reviewPacket.includes('requirements.md'),
+  enginePacket.includes('requirements.md'),
   'review.md plan-compliance-reviewer context packet references requirements.md'
 );
 
 // ============================================================
-// Test 2: review.md -- Requirements line uses spec-path
+// Test 2: engine -- Requirements line uses spec-path
 // ============================================================
-console.log('\nTest 2: review.md -- Requirements path uses spec-path variable');
+console.log('\nTest 2: review.md path -- Requirements path uses spec-path variable');
 assert(
-  reviewPacket.includes('{spec') && reviewPacket.includes('requirements.md'),
+  enginePacket.includes('{spec') && enginePacket.includes('requirements.md'),
   'review.md Requirements line references {spec-path}/requirements.md or similar spec path variable'
 );
 
 // ============================================================
-// Test 3: review.md -- fallback message when requirements.md not found
+// Test 3: engine -- fallback message when requirements.md not found
 // ============================================================
-console.log('\nTest 3: review.md -- fallback when requirements.md not found');
-// The fallback text should appear somewhere near the 4.1d section
-const review41d = contentFromHeading('**4.1d:', reviewContent);
+console.log('\nTest 3: review.md path -- fallback when requirements.md not found');
 assert(
-  review41d.toLowerCase().includes('not found') && review41d.toLowerCase().includes('requirement'),
+  enginePacket.toLowerCase().includes('not found') && enginePacket.toLowerCase().includes('requirement'),
   'review.md 4.1d has fallback text for when requirements.md is not found'
 );
 assert(
-  review41d.includes('skip requirement tracking'),
+  enginePacket.includes('skip requirement tracking'),
   'review.md fallback includes "skip requirement tracking"'
 );
 
@@ -119,13 +130,19 @@ assert(
 // Test 4: review-implementation.md -- plan-compliance-reviewer full spec packet includes Requirements
 // ============================================================
 console.log('\nTest 4: review-implementation.md -- full spec plan-compliance-reviewer has Requirements line');
-const reviewImplPacket = extractPlanCompliancePacket(reviewImplContent, '4.1d:');
+// v4.7: review-implementation.md routes context packets through the shared
+// engine; the plan-compliance packet lives in the engine's Context Packets.
 assert(
-  reviewImplPacket.includes('Requirements:'),
+  reviewImplContent.includes('skills/review-pipeline/SKILL.md') &&
+    reviewImplContent.includes('Context Packets'),
+  'review-implementation.md routes context packets through the review-pipeline engine'
+);
+assert(
+  enginePacket.includes('Requirements:'),
   'review-implementation.md plan-compliance-reviewer packet contains "Requirements:" line'
 );
 assert(
-  reviewImplPacket.includes('requirements.md'),
+  enginePacket.includes('requirements.md'),
   'review-implementation.md plan-compliance-reviewer packet references requirements.md'
 );
 
@@ -134,7 +151,7 @@ assert(
 // ============================================================
 console.log('\nTest 5: review-implementation.md -- Requirements path uses spec-path variable');
 assert(
-  reviewImplPacket.includes('{spec') && reviewImplPacket.includes('requirements.md'),
+  enginePacket.includes('{spec') && enginePacket.includes('requirements.md'),
   'review-implementation.md Requirements line references spec path variable with requirements.md'
 );
 
@@ -142,13 +159,12 @@ assert(
 // Test 6: review-implementation.md -- fallback when requirements.md not found
 // ============================================================
 console.log('\nTest 6: review-implementation.md -- fallback when requirements.md not found');
-const reviewImpl41d = contentFromHeading('**4.1d:', reviewImplContent);
 assert(
-  reviewImpl41d.toLowerCase().includes('not found') && reviewImpl41d.toLowerCase().includes('requirement'),
+  enginePacket.toLowerCase().includes('not found') && enginePacket.toLowerCase().includes('requirement'),
   'review-implementation.md 4.1d has fallback text for when requirements.md is not found'
 );
 assert(
-  reviewImpl41d.includes('skip requirement tracking'),
+  enginePacket.includes('skip requirement tracking'),
   'review-implementation.md fallback includes "skip requirement tracking"'
 );
 
@@ -159,22 +175,29 @@ console.log('\nTest 7: Ad-hoc mode unaffected');
 // In review-implementation.md, the ad-hoc mode does NOT spawn plan-compliance-reviewer at all.
 // Verify that the ad-hoc bug-detector, pattern-reviewer, and stack-reviewer packets don't have Requirements lines.
 // Ad-hoc packets are identified by "QUICK REVIEW MODE" marker
-const adHocSections = reviewImplContent.split('QUICK REVIEW MODE');
-// First element is before any ad-hoc section; remaining elements are ad-hoc packet contents
+// v4.7: the ad-hoc/quick packet preambles live in the engine's Context
+// Packets. The contract: the QUICK REVIEW MODE per-stack preamble carries no
+// Requirements line (only the plan-compliance bullet does), and the engine's
+// roster rules say ad-hoc spawns NO plan-compliance-reviewer.
+const adHocSections = enginePacket.split('QUICK REVIEW MODE');
 const adHocPacketTexts = adHocSections.slice(1);
 assert(
   adHocPacketTexts.length > 0,
   'review-implementation.md has ad-hoc (QUICK REVIEW MODE) sections'
 );
 const adHocHasRequirements = adHocPacketTexts.some(text => {
-  // Look only within the code block (up to the next ```)
-  const endIdx = text.indexOf('```');
+  // Look only within the same bullet (up to the next "- **" bullet or blank line pair)
+  const endIdx = text.search(/\n- \*\*|\n\n\*\*/);
   const block = endIdx > -1 ? text.substring(0, endIdx) : text;
   return block.includes('Requirements:');
 });
 assert(
   !adHocHasRequirements,
   'Ad-hoc mode packets do NOT contain a Requirements: line'
+);
+assert(
+  /NOT spawned in ad-hoc mode/.test(enginePacket),
+  'engine documents that plan-compliance-reviewer is not spawned in ad-hoc mode'
 );
 
 // ============================================================

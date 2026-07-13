@@ -66,18 +66,36 @@ assert(typeof mod.readWorkspaces === 'function', 'Exports readWorkspaces functio
 // readConfig — real .bee/config.json
 // ============================================================
 
-console.log('\nTest Group 2: readConfig — real .bee/');
+console.log('\nTest Group 2: readConfig — fixture .bee/');
+// Re-aimed from the live .bee/ tree to a synthetic fixture (grain rule: suites
+// must not depend on gitignored user workspace state).
 {
-  const cfg = mod.readConfig(REAL_BEE_DIR);
-  assert(cfg !== null, 'readConfig returns non-null for real .bee/');
-  assert(typeof cfg === 'object', 'readConfig returns object');
-  assert(Array.isArray(cfg.stacks), 'Config has stacks array');
-  assert(cfg.stacks.length > 0, 'Config stacks has at least one entry');
-  assert(cfg.stacks[0].name === 'claude-code-plugin', 'First stack is claude-code-plugin');
-  assert(typeof cfg.implementation_mode === 'string', 'Config has implementation_mode string');
-  assert(typeof cfg.review === 'object' && cfg.review !== null, 'Config has review object');
-  assert(typeof cfg.ship === 'object' && cfg.ship !== null, 'Config has ship object');
-  assert(typeof cfg.quick === 'object' && cfg.quick !== null, 'Config has quick object');
+  const tmp = makeTempBeeDir();
+  try {
+    fs.writeFileSync(
+      path.join(tmp, 'config.json'),
+      JSON.stringify({
+        stacks: [{ name: 'claude-code-plugin', path: '.' }],
+        implementation_mode: 'premium',
+        review: { loop: false },
+        ship: { max_review_iterations: 3 },
+        quick: { default_mode: 'tdd' },
+      }),
+      'utf8'
+    );
+    const cfg = mod.readConfig(tmp);
+    assert(cfg !== null, 'readConfig returns non-null for a populated .bee/');
+    assert(typeof cfg === 'object', 'readConfig returns object');
+    assert(Array.isArray(cfg.stacks), 'Config has stacks array');
+    assert(cfg.stacks.length > 0, 'Config stacks has at least one entry');
+    assert(cfg.stacks[0].name === 'claude-code-plugin', 'First stack is claude-code-plugin');
+    assert(typeof cfg.implementation_mode === 'string', 'Config has implementation_mode string');
+    assert(typeof cfg.review === 'object' && cfg.review !== null, 'Config has review object');
+    assert(typeof cfg.ship === 'object' && cfg.ship !== null, 'Config has ship object');
+    assert(typeof cfg.quick === 'object' && cfg.quick !== null, 'Config has quick object');
+  } finally {
+    cleanup(tmp);
+  }
 }
 
 // ============================================================
@@ -122,14 +140,28 @@ console.log('\nTest Group 4: readConfig — invalid JSON');
 // readHealthHistory — real file
 // ============================================================
 
-console.log('\nTest Group 5: readHealthHistory — real .bee/');
+console.log('\nTest Group 5: readHealthHistory — fixture .bee/');
+// Re-aimed from the live .bee/ tree to a synthetic fixture (grain rule).
 {
-  const hist = mod.readHealthHistory(REAL_BEE_DIR);
-  assert(hist !== null, 'readHealthHistory returns non-null for real .bee/');
-  assert(Array.isArray(hist), 'readHealthHistory returns array');
-  assert(hist.length > 0, 'Health history has at least one entry');
-  assert(typeof hist[0].timestamp === 'string', 'Entry has timestamp string');
-  assert(typeof hist[0].overall_status === 'string', 'Entry has overall_status string');
+  const tmp = makeTempBeeDir();
+  try {
+    fs.mkdirSync(path.join(tmp, 'metrics'), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmp, 'metrics', 'health-history.json'),
+      JSON.stringify([
+        { timestamp: '2026-06-01T10:00:00Z', overall_status: 'HEALTHY', summary: { passed: 14, warnings: 0, failures: 0 } },
+      ]),
+      'utf8'
+    );
+    const hist = mod.readHealthHistory(tmp);
+    assert(hist !== null, 'readHealthHistory returns non-null for a populated .bee/');
+    assert(Array.isArray(hist), 'readHealthHistory returns array');
+    assert(hist.length > 0, 'Health history has at least one entry');
+    assert(typeof hist[0].timestamp === 'string', 'Entry has timestamp string');
+    assert(typeof hist[0].overall_status === 'string', 'Entry has overall_status string');
+  } finally {
+    cleanup(tmp);
+  }
 }
 
 // ============================================================

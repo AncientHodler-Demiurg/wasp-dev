@@ -28,6 +28,8 @@ Use Glob to discover the project's file organization. Scan for these categories:
 
 Adapt patterns to what actually exists. If a category returns no results, skip it. Do not invent structure that is not there.
 
+While scanning, also classify auxiliary artifact types that reveal where specific kinds of code live -- e.g. exceptions (`**/exception*`, `**/*Exception*`), data objects / DTOs (`**/dto*`, `**/*Dto*`, `**/data/**`), traits / mixins (`**/trait*`, `**/*Trait*`), status enums (`**/enum*`, `**/*Enum*`, `**/*Status*`), and value objects (`**/value*`, `**/*ValueObject*`). Record the directory each artifact type lives in and one real example file per type. You will use this to build the Artifact Placement Taxonomy in ARCHITECTURE.md. Where an artifact type has no instance in the codebase, note its absence rather than inventing a location.
+
 ## 3. Analyze Patterns with Grep
 
 Use Grep to identify recurring patterns in the discovered files:
@@ -61,6 +63,7 @@ Write 4 separate documents, each focused on a specific aspect. Use bullet points
 
 **`.bee/ARCHITECTURE.md`** -- Patterns and structure:
 - **Module Organization** -- directory layout, module boundaries
+  - Under Module Organization, add a named subsection **Artifact Placement Taxonomy** -- a per-artifact-type "where it lives" map built from the artifact types you classified in the scan step (exceptions, data objects, traits, status enums, value objects, plus the primary categories). Format each entry as one bullet: `- {artifact type}: {directory it lives in} -- e.g. {concrete example file path}`. Where the type convention implies a base type or expected parent (e.g. data objects extend a data base class, exceptions extend a framework exception), append `; extends {observed base type}` -- but ONLY when the relationship is visible in real code, never invented. Where an artifact type has no instance in the codebase, write the entry as `- {artifact type}: none observed`. This subsection lives INSIDE ARCHITECTURE.md -- it is NOT a separate context file.
 - **Design Patterns** -- observed patterns with example files
 - **Data Flow** -- request lifecycle, state management
 - **API Patterns** -- route structure, response formats
@@ -86,6 +89,8 @@ Rules for all documents:
 ## 6. Write CONTEXT.md (backward compatibility)
 
 After writing all 4 documents, write `.bee/CONTEXT.md` as a combined summary. Include a header note: "Combined summary. See individual files for details: STACK.md, ARCHITECTURE.md, CONVENTIONS.md, CONCERNS.md". Include top 3-5 bullets from each document under Stack, Architecture, Conventions, Concerns headings.
+
+Under the Architecture heading, surface the **Artifact Placement Taxonomy** from ARCHITECTURE.md as a condensed sub-list so the reviewer that reads CONTEXT.md first does not miss it. Carry over the top 3-5 taxonomy entries (the artifact types with observed instances first), keeping each entry's concrete example-file citation -- the citation is the load-bearing payload the reviewer anchors against. Reuse the same per-entry format as ARCHITECTURE.md: `- {artifact type}: {directory it lives in} -- e.g. {concrete example file path}`, with the `; extends {observed base type}` clause where visible and `- {artifact type}: none observed` for absent types. This is surfaced WITHIN the existing Architecture section under a `Artifact Placement Taxonomy` label -- do NOT add a new top-level CONTEXT.md heading and do NOT create a sixth file.
 
 ## 7. Completion
 

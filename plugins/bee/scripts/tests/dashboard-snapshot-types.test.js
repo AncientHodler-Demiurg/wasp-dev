@@ -160,6 +160,31 @@ assert(
 );
 
 // ============================================================
+// Test 7: ActiveSpec interface declared (multispec-foundation Step 4)
+// ============================================================
+console.log('\nTest 7: ActiveSpec interface and Snapshot.activeSpecs field');
+assert(
+  /export\s+interface\s+ActiveSpec\b/.test(content),
+  'Exports `ActiveSpec` interface'
+);
+
+const activeSpecBlockMatch = content.match(
+  /export\s+interface\s+ActiveSpec\s*\{([\s\S]*?)\n\}/
+);
+const activeSpecBody = activeSpecBlockMatch ? activeSpecBlockMatch[1] : '';
+
+for (const field of ['slug', 'title', 'stage', 'location', 'last_touched', 'inWorktree']) {
+  const re = new RegExp(`^\\s*${field}\\??\\s*:`, 'm');
+  assert(re.test(activeSpecBody), `ActiveSpec.${field} is declared`);
+}
+
+// `activeSpecs` must appear in the Snapshot interface body
+assert(
+  /^\s*activeSpecs\??\s*:/m.test(snapshotBody),
+  'Snapshot.activeSpecs is declared'
+);
+
+// ============================================================
 // Results
 // ============================================================
 console.log(`\nResults: ${passed} passed, ${failed} failed out of ${passed + failed} assertions`);

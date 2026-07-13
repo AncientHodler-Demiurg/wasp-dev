@@ -93,16 +93,33 @@ assert(
   `BATCH_VALIDATOR_INSERTION_POINTS keyed by 7 parent commands — got ${Object.keys(BATCH_VALIDATOR_INSERTION_POINTS).length}`
 );
 
+// v4.7: commands routed through the shared review-pipeline engine declare the
+// bare script filenames in their $BATCH_VALIDATORS manifest; the engine owns
+// the parameterized validators/batch/ invocation sites. The REQ-09 contract is
+// pinned across both halves of that path.
+const REVIEW_ENGINE_SRC = readFileSafe(
+  path.join(COMMANDS_DIR, '..', 'skills', 'review-pipeline', 'SKILL.md')
+) || '';
+
 for (const [cmdFile, expectedRefs] of Object.entries(BATCH_VALIDATOR_INSERTION_POINTS)) {
   const cmdPath = path.join(COMMANDS_DIR, cmdFile);
   const src = readFileSafe(cmdPath);
   assert(src !== null, `${cmdFile}: readable at ${cmdPath}`);
   if (src === null) continue;
+  const engineRouted = src.includes('skills/review-pipeline/SKILL.md');
   for (const ref of expectedRefs) {
-    assert(
-      src.includes(ref),
-      `${cmdFile}: references ${ref} (conductor invokes batch validator by this literal path — REQ-09)`
-    );
+    if (engineRouted && ref.startsWith('validators/batch/')) {
+      const bare = ref.replace('validators/batch/', '');
+      assert(
+        src.includes(bare) && REVIEW_ENGINE_SRC.includes('validators/batch/{$BATCH_VALIDATORS.'),
+        `${cmdFile}: manifest declares ${bare} and the engine owns the validators/batch/ invocation site (REQ-09 via engine routing)`
+      );
+    } else {
+      assert(
+        src.includes(ref),
+        `${cmdFile}: references ${ref} (conductor invokes batch validator by this literal path — REQ-09)`
+      );
+    }
   }
 }
 

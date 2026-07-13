@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/emit-event.js post_tool_use",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/emit-event-gate.sh post_tool_use",
             "timeout": 5
           }
         ]
@@ -84,251 +84,10 @@
     ],
     "SubagentStop": [
       {
-        "matcher": "(?<!quick-)implementer$",
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/implementer.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^fixer$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/fixer.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^researcher$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/researcher.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^assumptions-analyzer$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/assumptions-analyzer.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^dependency-auditor$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/dependency-auditor.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "(?<!audit-)bug-detector$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/bug-detector.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "pattern-reviewer$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/pattern-reviewer.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^plan-compliance-reviewer$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/plan-compliance-reviewer.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "stack-reviewer$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/stack-reviewer.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^quick-implementer$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/quick-implementer.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^security-auditor$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/security-auditor.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^error-handling-auditor$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/error-handling-auditor.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^database-auditor$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/database-auditor.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^architecture-auditor$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/architecture-auditor.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^api-auditor$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/api-auditor.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^frontend-auditor$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/frontend-auditor.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^performance-auditor$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/performance-auditor.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^testing-auditor$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/testing-auditor.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^audit-bug-detector$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/audit-bug-detector.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^audit-finding-validator$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/audit-finding-validator.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^finding-validator$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/finding-validator.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^audit-report-generator$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/audit-report-generator.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^debug-investigator$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/debug-investigator.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^integration-checker$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/integration-checker.js",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "^swarm-consolidator$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/swarm-consolidator.js",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/dispatch-gate.sh",
             "timeout": 5
           }
         ]
@@ -337,7 +96,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/emit-event.js subagent_stop",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/emit-event-gate.sh subagent_stop",
             "timeout": 5
           }
         ]
@@ -357,7 +116,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/emit-event.js stop",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/emit-event-gate.sh stop",
             "timeout": 5
           }
         ]
@@ -373,15 +132,6 @@
             "timeout": 120
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/emit-event.js pre_tool_use",
-            "timeout": 5
-          }
-        ]
       }
     ],
     "UserPromptSubmit": [
@@ -389,7 +139,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/emit-event.js user_prompt_submit",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/emit-event-gate.sh user_prompt_submit",
             "timeout": 5
           }
         ]

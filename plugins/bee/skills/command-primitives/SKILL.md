@@ -79,6 +79,67 @@ If the detected phase Plan column is `Yes`, warn before overwriting:
 PLANNED → soft warning; EXECUTING+ → strong warning that progress may be
 lost. Stop unless the user confirms.
 
+## Spec Resolver
+
+Binds a command to the single spec it acts on, switching the global `.bee/STATE.md`
+to that spec and (optionally) advancing its registry stage. The call site supplies:
+
+- `action` — the verb used in user-facing messages (e.g. `plan`, `ship`, `archive`).
+- `on_no_spec` — `stop` (default: tell the user and halt) or `proceed` (continue
+  with no bound spec — only `/bee:discuss`, which may create one).
+- `advance_stage` — a target stage to advance to (e.g. `planning`, `discussing`),
+  or omit for none.
+
+Resolve the active spec:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js resolve --bee .bee
+```
+
+Interpret the JSON `mode`:
+
+- **`{"mode":"create"}`** — no active spec. If `on_no_spec` is `stop`: tell the user
+  "No active spec to {action}. Run `/bee:new-spec` first." and STOP. If `on_no_spec` is
+  `proceed`: continue with no bound spec (do NOT stop).
+- **`{"mode":"auto","slug":"X"}`** — target spec `X`. Check the Current Spec Path in
+  `.bee/STATE.md`. If it already points to `.bee/specs/X/`, proceed without touching
+  (single-spec byte-for-byte: no extra noise). If it does NOT, run **Switch** below for `X`.
+- **`{"mode":"pick","candidates":[…]}`** — ask via AskUserQuestion which spec to {action}.
+  Present each candidate as `{title} ({stage})` (slug as the selection value),
+  most-recently-touched first, `Custom` last. If two or more candidates share the same
+  title AND stage, append ` [{slug}]` to each so they are distinguishable. If a candidate
+  lacks a `title`, fall back to its slug. If the JSON includes a `more` field, add
+  "+{more} more active spec(s) — run `/bee:spec list` to see all." as informational text in
+  the question body (NOT a selectable option). Use the chosen slug, then run **Switch**.
+
+**Switch** (the pick branch, and the auto branch where the path did NOT match):
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js touch --bee .bee --slug <slug>
+```
+
+This syncs `.bee/STATE.md` to the chosen spec. Check the exit code: if non-zero (snapshot
+missing or spec unknown), ABORT with "Could not switch to spec <slug> (snapshot missing);
+aborting to avoid acting on the wrong spec. Run `/bee:spec list`." — never act on the stale
+previously-focused spec. On success, re-read `.bee/STATE.md` from disk now (the touch
+re-synced it); use this fresh copy, not the preamble's, for the rest of the command.
+
+**Advance stage** (only when `advance_stage` is supplied):
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js list --bee .bee --active --json
+```
+
+Find the `<slug>` entry. STAGES order: `shaping`, `discussing`, `planning`, `executing`,
+`reviewing`, `shipped`, `archived`. If the spec's current stage index is already >= the index
+of `{advance_stage}`, skip. Otherwise:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js set-stage --bee .bee --slug <slug> --stage {advance_stage}
+```
+
+If this prints `set-stage: unknown spec ...` (legacy spec not in registry), tolerate and continue.
+
 ## Auto-Mode Marker
 
 Used by `/bee:ship`, `/bee:plan-all`, `/bee:autonomous` to flag an autonomous
@@ -363,6 +424,105 @@ verbatim in every agent's context packet -- agents must NOT re-read them:
    changes, and side effect changes. Verify test files cover the modified
    behavior."
 
+## Conversation Context Capture
+
+Extract the decisions, constraints, and ruled-out alternatives that lived in
+the live chat and inject them into plan artifacts and spawned subagent prompts.
+Subagents start with NO inherited transcript — they see only what the
+orchestrator stuffs into their prompt. Without this, every decision agreed in
+chat is lost the moment a subagent spawns, leaving only the bare description
+string.
+
+**Inputs:** the live conversation transcript; the unit of work the command
+delegates (`$DESCRIPTION` for single-task commands, the feature scope for
+multi-task commands, `$TOPIC` for discuss); the most recent state-loading
+command boundary.
+
+**Behavior:**
+
+1. **Extract** from the live conversation into exactly 3 buckets:
+   - **Decisions** — what we agreed to do.
+   - **Constraints** — what bounds the work (must / must-not, files, perf,
+     compat).
+   - **Ruled-out** — alternatives rejected + WHY, so subagents don't
+     re-propose them.
+2. **Source boundary.** **Capture only chat after the most recent state-loading command**. State-loading commands (`/bee:resume`, `/bee:thread`,
+   `/bee:progress`) already loaded persisted context into the chat; pulling
+   from before them would re-inject what they already loaded. Capture only the
+   conversation that happened after the last such command.
+3. **Tight relevance filtering.** Keep only context that changes the task being
+   delegated. Drop anything that doesn't alter what a subagent would do. The
+   goal is lean subagent prompts, not a chat dump.
+4. **Hybrid confirmation gate.** Count the total bullets across all 3 buckets.
+   - **≤5 bullets** → inject silently, no prompt.
+   - **>5 bullets** → `AskUserQuestion` showing the buckets, with options
+     **Accept** (inject as-is) / **Edit** (revise the buckets, then inject) /
+     **Skip** (inject nothing) / **Custom** (free-text affordance). Custom is
+     the LAST option, without exception.
+5. **Empty buckets** (fresh session, nothing relevant) → skip entirely: zero
+   output, no injection, no `## Conversation Context` header written. This is
+   the natural no-op; the behavior is unconditional, gated only by whether
+   anything relevant was captured.
+
+**Two injection sites:**
+
+The captured buckets land in two places, each identified by a literal heading.
+
+1. **Plan / notes file** gets a `## Conversation Context` section. This
+   persists for `--amend` re-runs and serves as the audit trail. Written only
+   when buckets are non-empty.
+
+   ```markdown
+   ## Conversation Context
+
+   **Decisions**
+   - <what we agreed to do>
+
+   **Constraints**
+   - <must / must-not, files, perf, compat>
+
+   **Ruled-out**
+   - <rejected alternative> — <why>
+   ```
+
+2. **Every spawned subagent prompt** gets a `## Prior Discussion` block
+   adjacent to the description / topic. This directly fixes the
+   "description string is the only input" gap.
+
+   ```markdown
+   {DESCRIPTION}
+
+   ## Prior Discussion
+
+   **Decisions**
+   - <sliced for this task>
+
+   **Constraints**
+   - <sliced for this task>
+
+   **Ruled-out**
+   - <sliced for this task> — <why>
+   ```
+
+**Per-command filtering nuance:**
+
+"Tight" means something different per command because the unit of work differs.
+
+- **Single-task commands** (`/bee:quick`) — one task exists at capture time.
+  Filter tight against that one `$DESCRIPTION` and inject directly.
+- **Multi-task commands** (`/bee:quick-phase`, `/bee:new-spec`) — produce many
+  tasks across waves; no single "this task" exists at capture time. Capture
+  tight against the **feature scope** at command level into the plan file's
+  `## Conversation Context`, then **slice per-task** into each subagent's
+  `## Prior Discussion` block — only the bullets touching that task's
+  files / AC. The per-task slice is where "tight" actually bites.
+- **`/bee:discuss`** — spawns only discuss-partner (no implementers). Filter
+  tight against the discussion `$TOPIC`.
+
+**Output:** when buckets are non-empty, a `## Conversation Context` section in
+the plan / notes artifact and a per-task-sliced `## Prior Discussion` block in
+every spawned subagent prompt; when empty, nothing. No config key gates this.
+
 ## Stack/Linter/Test-Runner Resolution
 
 Standard fallback chain used wherever a command needs a per-stack linter or
@@ -416,9 +576,35 @@ agent doing reasoning-heavy work).
 - `"economy"` → pass `model: "sonnet"`
 - `"quality"` or `"premium"` → omit the `model` parameter (agent inherits the
   parent model)
+- `"max-critical"` → pass `model: $CRITICAL_MODEL` for CRITICAL work; omit the
+  `model` parameter (inherit) for everything else. Critical work is: (a) any
+  task whose TASKS.md entry carries `criticality: high` (stamped by the
+  phase-planner — see Criticality Stamping in phase-planner.md), and (b) the
+  critical review spots — plan-review convergence loops, deep re-reviews, and
+  the final implementation review.
+- `"max"` → pass `model: $CRITICAL_MODEL` for ALL reasoning work.
+
+**`$CRITICAL_MODEL`** resolves from `config.models.critical` (default:
+`"fable"` when the key or the `models` section is absent — additive, older
+configs keep working).
+
+**Critical-model fallback (never block on availability):** if spawning with
+`model: $CRITICAL_MODEL` fails (model not available on this plan/install),
+fall back to omitting the `model` parameter (inherit) for that spawn, surface
+a ONE-TIME notice to the user ("critical model {name} unavailable — falling
+back to the inherited model for critical work this run"), and continue.
+Never retry-loop, never halt the pipeline on model availability.
 
 **Fixer exception:** fixers always omit the `model` parameter regardless of
-mode -- production-code writing always uses the parent model.
+mode -- production-code writing always uses the parent model. EXTENSION for
+the max tiers: under `"max"`, ALL fixers use `$CRITICAL_MODEL` (max routes
+all reasoning work); under `"max-critical"`, a fixer uses `$CRITICAL_MODEL`
+when the finding it addresses has Critical or High severity OR the work being
+fixed belongs to a `criticality: high` task — it inherits otherwise. The
+always-inherit behavior is unchanged for economy/quality/premium.
+
+**Unknown mode values never crash a consumer:** any unrecognized
+`implementation_mode` value behaves as `"premium"` (omit the model parameter).
 
 ## Model Selection (Scanning)
 
@@ -429,6 +615,10 @@ Researcher variant -- scanning work is cheaper than reasoning.
 **Rule:**
 - `"economy"` or `"quality"` → pass `model: "sonnet"`
 - `"premium"` → omit the `model` parameter (inherit parent model)
+- `"max-critical"` → behaves exactly as `"premium"` (omit the model parameter)
+  — scanning work is structured and does not elevate to the critical model.
+- `"max"` → pass `model: $CRITICAL_MODEL` (max means everything, scanning
+  included).
 
 This differs from the Reasoning rule because `"quality"` mode keeps
 researchers on sonnet while elevating reasoning agents.

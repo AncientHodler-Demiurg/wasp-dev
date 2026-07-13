@@ -1,8 +1,26 @@
 # Changelog — wasp-dev marketplace
 
-All notable changes to the **wasp-dev marketplace** are documented here. This file tracks marketplace-level versions. The vendored bee plugin's own history lives at [`plugins/bee/CHANGELOG.md`](plugins/bee/CHANGELOG.md). The wasp plugin's own history lives at [`plugins/wasp/CHANGELOG.md`](plugins/wasp/CHANGELOG.md).
+All notable changes to the **wasp-dev marketplace** are documented here. This file tracks marketplace-level versions. The vendored bee plugin's own history lives at [`plugins/bee/CHANGELOG.md`](plugins/bee/CHANGELOG.md). The vendored nectar plugin's own history lives at [`plugins/nectar/CHANGELOG.md`](plugins/nectar/CHANGELOG.md). The wasp plugin's own history lives at [`plugins/wasp/CHANGELOG.md`](plugins/wasp/CHANGELOG.md).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+---
+
+## [1.5.0] - 2026-07-13 — Upstream sync: bee → 4.8.2 + new vendored nectar plugin
+
+Absorbed upstream `bee-dev` (george-popescu/bee-dev, marketplace 1.11.0) via `git merge upstream/main`. This marketplace now ships **three** plugins: `bee`, `nectar`, and `wasp`. The `wasp` plugin is unchanged at `1.4.4`.
+
+### Added
+- **`nectar` plugin `1.0.0`** — vendored unmodified from upstream. The essence of spec-driven development distilled into 9 skills (shape, plan, build, review, honey, debug, audit, capture, orient) and 3 read-only enforcement agents. No commands, no state machine: plain artifacts in `docs/work/` are the only state, and "drop the honey" delivers a feature end-to-end from a single confirmation. Lives at [`plugins/nectar/`](plugins/nectar/).
+
+### Changed
+- **`bee` plugin `4.5.1` → `4.8.2`** — vendored sync to upstream. Brings Bee Multi-Spec (v4.8.0: parallel specs, per-spec memory, worktree promotion, multi-spec dashboard), execution-speed passes (v4.8.1), the parallel meta-test runner (v4.8.2), the SubagentStop validator dispatcher, and the v4.5.2 conversation-context-capture + per-install MCP tool discovery work. Full detail in [`plugins/bee/CHANGELOG.md`](plugins/bee/CHANGELOG.md). Vendored byte-for-byte from upstream — no local modifications.
+- Marketplace version: `1.4.4` → `1.5.0`.
+- Marketplace + both vendored plugin descriptions updated to reflect the three-plugin roster and current versions.
+
+### Notes
+- Conflict resolution kept the `wasp-dev` marketplace identity, owner, and the `wasp` plugin entry; took upstream verbatim for `plugins/bee/**` and `plugins/nectar/**`. The upstream `bee-dev` marketplace changelog was **not** merged into this file — it belongs to `plugins/bee/CHANGELOG.md`.
+- The upstream `.superpowers/` dev artifacts and `.DS_Store` gitignore rule came along with the merge.
 
 ---
 

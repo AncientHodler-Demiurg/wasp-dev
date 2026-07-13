@@ -42,7 +42,22 @@ if (!step4Match) {
   console.error('Could not find Step 4 section in review.md');
   process.exit(1);
 }
-const step4 = step4Match[0];
+// Since v4.7 the engine content review.md routes through lives in the shared
+// review-pipeline skill. The multi-stack contract is pinned on review.md's
+// EXECUTION PATH: command Step 4 (manifest + section references) + the engine.
+const ENGINE_PATH = path.resolve(__dirname, '..', 'skills', 'review-pipeline', 'SKILL.md');
+let engineContent;
+try {
+  engineContent = fs.readFileSync(ENGINE_PATH, 'utf8');
+} catch (err) {
+  console.error(`Cannot read review-pipeline engine: ${err.message}`);
+  process.exit(1);
+}
+if (!step4Match[0].includes('skills/review-pipeline/SKILL.md')) {
+  console.error('review.md Step 4 does not route through the review-pipeline engine');
+  process.exit(1);
+}
+const step4 = step4Match[0] + engineContent;
 
 // Extract Step 7 section (from "### Step 7:" to "### Step 8:")
 const step7Match = content.match(/### Step 7:[\s\S]*?(?=### Step 8:)/);
@@ -255,10 +270,11 @@ console.log(
   'Test 14: All findings from all stacks are aggregated into single REVIEW.md'
 );
 {
-  // Steps 4.3-4.5 should still exist and work with multi-stack findings
+  // The parse -> dedup -> report aggregation chain must exist on the path
+  // (engine sections since v4.7; previously command steps 4.3-4.5)
   assert(
-    step4.includes('4.3') && step4.includes('4.4') && step4.includes('4.5'),
-    'Steps 4.3, 4.4, 4.5 should still exist for aggregation'
+    step4.includes('Parse Findings') && step4.includes('Deduplicate and Merge') && step4.includes('Write Report'),
+    'Parse/Deduplicate/Write Report aggregation chain exists on the review path'
   );
   // Should mention aggregating from all stacks
   assert(

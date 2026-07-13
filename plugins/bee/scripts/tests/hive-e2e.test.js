@@ -33,6 +33,41 @@ const HIVE_SERVER = path.resolve(__dirname, '..', 'hive-server.js');
 const HIVE_DIST = path.resolve(__dirname, '..', 'hive-dist');
 const INDEX_HTML = path.join(HIVE_DIST, 'index.html');
 
+// Fixture .bee dir for the snapshot endpoint (grain rule: the suite must not
+// depend on the gitignored live .bee/ workspace — HIVE_BEE_DIR pins the
+// server to a synthetic tree).
+const os = require('os');
+const FIXTURE_BEE = fs.mkdtempSync(path.join(os.tmpdir(), 'hive-e2e-bee-'));
+fs.writeFileSync(
+  path.join(FIXTURE_BEE, 'STATE.md'),
+  [
+    '# Bee Project State',
+    '',
+    '## Current Spec',
+    '- Name: fixture-spec',
+    '- Path: .bee/specs/2026-01-01-fixture-spec/',
+    '- Status: IN_PROGRESS',
+    '',
+    '## Phases',
+    '| # | Name | Status | Plan | Plan Review | Executed | Reviewed | Tested | Committed |',
+    '|---|------|--------|------|-------------|----------|----------|--------|-----------|',
+    '| 1 | Fixture Phase | EXECUTED | Yes | Yes (1) | Yes | | | |',
+    '',
+    '## Last Action',
+    '- Command: /bee:execute-phase',
+    '- Timestamp: 2026-01-01T00:00:00Z',
+    '- Result: Phase 1 executed',
+    '',
+  ].join('\n')
+);
+fs.writeFileSync(
+  path.join(FIXTURE_BEE, 'config.json'),
+  JSON.stringify({ stacks: [{ name: 'claude-code-plugin', path: '.' }], implementation_mode: 'premium' })
+);
+process.on('exit', () => {
+  try { fs.rmSync(FIXTURE_BEE, { recursive: true, force: true }); } catch {}
+});
+
 // ========== Hand-rolled assertion harness ==========
 
 let passed = 0;
@@ -247,6 +282,7 @@ async function main() {
         ...process.env,
         HIVE_PORT: String(port),
         HIVE_STATIC_DIR: HIVE_DIST,
+        HIVE_BEE_DIR: FIXTURE_BEE,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     }

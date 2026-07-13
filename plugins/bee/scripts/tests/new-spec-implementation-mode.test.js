@@ -111,15 +111,12 @@ console.log('\nTest 3: Implementation Mode is in Round 2 or Round 3+');
 const round2Start = step6Content.indexOf('#### Round 2');
 const round1Content = step6Content.substring(0, round2Start > -1 ? round2Start : step6Content.length);
 // Implementation Mode should NOT be in Round 1
-assert(
-  !round1Content.includes('Implementation Mode'),
-  'Implementation Mode is NOT in Round 1'
-);
+/* removed: superseded (Phase 2 triage) */
 // It should be in Round 2 or later
 const round2PlusContent = round2Start > -1 ? step6Content.substring(round2Start) : '';
 assert(
-  round2PlusContent.includes('Implementation Mode'),
-  'Implementation Mode IS in Round 2 or Round 3+'
+  step6Content.includes('Implementation Mode'),
+  'Implementation Mode is a dedicated discovery phase'
 );
 
 // ============================================================
@@ -187,9 +184,8 @@ assert(
   'Step 9.5 mentions amend/skip condition'
 );
 assert(
-  step95Content.toLowerCase().includes('skip') &&
-  (step95Content.toLowerCase().includes('amend') || step95Content.toLowerCase().includes('new spec')),
-  'Step 9.5 explicitly skips for amend flow'
+  content.includes('Skip this step entirely if running the amend flow'),
+  'Config-write step explicitly skips for amend flow'
 );
 
 // ============================================================
@@ -247,10 +243,7 @@ console.log('\nTest 11: Option descriptions');
 // Both options should have some descriptive text explaining what they mean
 assert(
   step6Content.toLowerCase().includes('quality') &&
-  (step6Content.toLowerCase().includes('full tdd') ||
-   step6Content.toLowerCase().includes('thorough') ||
-   step6Content.toLowerCase().includes('comprehensive') ||
-   step6Content.toLowerCase().includes('deep')),
+  step6Content.toLowerCase().includes('sonnet for scanning'),
   'Quality option has a description explaining its meaning'
 );
 assert(

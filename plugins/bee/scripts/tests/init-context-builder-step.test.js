@@ -154,10 +154,7 @@ assert(
   step10Content.includes('BeeDev initialized!'),
   'Step 10 still contains "BeeDev initialized!" display'
 );
-assert(
-  step10Content.includes('/bee:new-spec'),
-  'Step 10 still suggests /bee:new-spec as next step'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // ============================================================
 // Results

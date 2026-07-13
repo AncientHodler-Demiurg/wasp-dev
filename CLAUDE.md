@@ -8,26 +8,27 @@ For user-facing install/usage docs, see [README.md](README.md). For version hist
 
 ## What this repo is
 
-This is a **Claude Code marketplace** named `wasp-dev`. Forked from upstream [BEE-CODED/bee-dev](https://github.com/BEE-CODED/bee-dev) on 2026-05-14. The fork hosts two plugins:
+This is a **Claude Code marketplace** named `wasp-dev`. Forked from upstream [BEE-CODED/bee-dev](https://github.com/BEE-CODED/bee-dev) on 2026-05-14, last synced with upstream on 2026-07-13 (marketplace 1.5.0). The fork hosts three plugins:
 
-- **`bee`** — the upstream bee plugin (4.5.1), **vendored unchanged** under `plugins/bee/`. Never modify files in there.
+- **`bee`** — the upstream bee plugin (4.8.2), **vendored unchanged** under `plugins/bee/`. Never modify files in there.
+- **`nectar`** — the upstream nectar plugin (1.0.0, added in the 2026-07-13 sync), **vendored unchanged** under `plugins/nectar/`. A commandless, skills-based sibling to bee (9 skills + 3 read-only agents). Same rule as bee: never modify files in there.
 - **`wasp`** — our additive layer, original work, under `plugins/wasp/`. This is where ALL development happens.
 
-The marketplace.json at `.claude-plugin/marketplace.json` declares both plugins so a single `claude plugin marketplace add` install gives users both.
+The marketplace.json at `.claude-plugin/marketplace.json` declares all three plugins so a single `claude plugin marketplace add` install gives users all of them.
 
 Remote: https://github.com/AncientHodler-Demiurg/wasp-dev (origin)
 Upstream tracker: https://github.com/george-popescu/bee-dev (upstream)
 
 ---
 
-## Critical rule: don't touch `plugins/bee/`
+## Critical rule: don't touch `plugins/bee/` or `plugins/nectar/`
 
-Every file under `plugins/bee/` is vendored from upstream. We keep them byte-identical so future upstream merges produce zero conflicts. Any improvement that affects bee's behavior:
+Every file under `plugins/bee/` **and** `plugins/nectar/` is vendored from upstream. We keep them byte-identical so future upstream merges produce zero conflicts. Any improvement that affects bee's or nectar's behavior:
 
-- If it's a bee-internal fix: contribute upstream, then `git pull` here when it ships
-- If it's our extension: add it to `plugins/wasp/` instead, even if it conceptually relates to bee
+- If it's an upstream-internal fix: contribute upstream, then `git pull`/`git merge upstream/main` here when it ships
+- If it's our extension: add it to `plugins/wasp/` instead, even if it conceptually relates to bee or nectar
 
-The one allowed exception: `plugins/bee/CHANGELOG.md` may be re-synced when we pull a new upstream version (since upstream maintains it).
+The one allowed exception: the vendored `CHANGELOG.md` files (`plugins/bee/CHANGELOG.md`, `plugins/nectar/CHANGELOG.md`) may be re-synced when we pull a new upstream version (since upstream maintains them).
 
 ---
 

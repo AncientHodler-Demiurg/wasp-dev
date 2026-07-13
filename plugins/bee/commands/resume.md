@@ -10,8 +10,9 @@ Read these files using the Read tool:
 - `.bee/config.json` — if not found: use `{}`
 - `.bee/user.md` — if not found: NO_USER_PREFS (skip silently)
 - `.bee/COMPACT-CONTEXT.md` — if not found: try `.bee/SESSION-CONTEXT.md` — if neither found: NO_SESSION_CONTEXT
+  (Note: these global paths are loaded here only for backward compat. The authoritative per-spec context is read AFTER the resolver runs — see Section 3.)
 - `.bee/CONTEXT.md` — if not found: NO_CONTEXT
-- `.bee/pause-handoff.md` — if not found: NO_PAUSE_HANDOFF
+- `.bee/pause-handoff.md` — if not found: NO_PAUSE_HANDOFF (legacy global path; the actual handoff is read per-spec after the resolver runs — see Step 0)
 
 ## Instructions
 
@@ -25,11 +26,38 @@ If the state above contains `NOT_INITIALIZED`, respond:
 
 Stop here -- do not proceed with the rest of the instructions.
 
+### Step: Resolve which spec to resume
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js resolve --bee .bee
+```
+
+Parse the JSON result and act on the `mode` field:
+
+- `mode:create` — no active spec exists. Brief the project generally (stack, last action from STATE.md) and suggest `/bee:new-spec` to start a new spec. Do NOT proceed to the pause detection or briefing below.
+- `mode:auto` — exactly one active spec. Check the Current Spec Path in `.bee/STATE.md` (already read in preamble). If it does NOT already point to `.bee/specs/<slug>/`, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js touch --bee .bee --slug <slug>` and check its exit code — if non-zero (snapshot missing), ABORT with: "Could not switch to spec <slug> (snapshot missing); aborting. Run `/bee:spec list`." Then re-read `.bee/STATE.md` from disk (the global was stale — e.g., reset to NO_SPEC by a prior complete). If it already matches, proceed without touching. Proceed to Step 0 below.
+- `mode:pick` — multiple active specs and this chat is not bound to one. Before presenting the picker, check for a per-spec pause handoff for each candidate: use Bash to test whether `.bee/specs/<slug>/pause-handoff.md` exists for each candidate. If it does, annotate that candidate as `"{title} ({stage}) — paused here"` so the user can identify which spec they paused mid-session; otherwise use the normal `"{title} ({stage})"` format. Present a picker:
+  ```
+  AskUserQuestion(
+    question: "Multiple active specs found. Which would you like to resume?\n+{more} more active spec(s) — run `/bee:spec list` to see all. (include in question body if more > 0, not as an option)",
+    options: [...candidates as "{title} ({stage})" or "{title} ({stage}) — paused here" (slug as selection value, most-recently-touched first; if two candidates share the same title AND stage, append " [{slug}]" to each of those labels), "Custom"]
+  )
+  ```
+  If the JSON includes a `more` field, include "+{more} more active spec(s) — run `/bee:spec list` to see all." as informational text in the question body (NOT as a selectable option). If a candidate lacks a `title`, fall back to its slug.
+  After the user picks, run:
+  ```bash
+  node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js touch --bee .bee --slug <chosen-slug>
+  ```
+  Check the exit code. If non-zero (snapshot missing), ABORT with: "Could not switch to spec <chosen-slug> (snapshot missing); aborting. Run `/bee:spec list`."
+  Re-read `.bee/STATE.md` now — the `touch` above re-synced it to the resolved spec; use this fresh copy, not the preamble's. Then proceed to Step 0 below, briefing the chosen spec. Do NOT assume the last-touched spec when `mode:pick` — always ask.
+
 ### Step 0: Pause Detection
 
-If `NO_PAUSE_HANDOFF` does NOT appear in the injected context (meaning `.bee/pause-handoff.md` was found):
+**Per-spec handoff resolution:** After the resolver/touch has established the resolved slug, the authoritative handoff path is `.bee/specs/<resolved-slug>/pause-handoff.md`. Read this per-spec path now (not the global `.bee/pause-handoff.md` from the preamble). If the per-spec file exists, use it as the handoff content for all checks below. If the per-spec file is absent but a legacy `.bee/pause-handoff.md` exists (migration tolerance — old single-file format), read its `## Current Position` section and compare the spec name there against the resolved spec's STATE.md Name (Current Spec Name field). Only adopt it as fallback if they match — the handoff belongs to this spec. If they do not match, treat as NO_PAUSE_HANDOFF and do not surface the mismatched handoff. If neither exists, treat as NO_PAUSE_HANDOFF.
 
-**Corruption check:** If the handoff file is empty or does not contain a `## Current Position` section, treat it as corrupt: display "Found a pause handoff but it appears incomplete. Deleting it." then delete the file (`rm .bee/pause-handoff.md`) and skip to the Context Restoration Briefing below.
+If `NO_PAUSE_HANDOFF` does NOT apply (a per-spec handoff or legacy fallback was found):
+
+**Corruption check:** If the handoff file is empty or does not contain a `## Current Position` section, treat it as corrupt: display "Found a pause handoff but it appears incomplete. Deleting it." then delete the file using Bash (`rm` on the per-spec path `.bee/specs/<slug>/pause-handoff.md`, or the legacy path if that was used) and skip to the Context Restoration Briefing below.
 
 **Staleness check:** Compare the spec name from the handoff's "## Current Position" section against STATE.md's current spec name. If they differ, display a warning: "This handoff is from a different spec ({handoff spec}). Current spec is {current spec}. The handoff context may be outdated." and add "Delete stale handoff" as an extra option in the menu below.
 
@@ -71,8 +99,8 @@ AskUserQuestion(
 
 Handle choices:
 
-- **Continue (delete handoff)**: First, extract the "Next Action" suggestion from the handoff content already loaded in context above. Then delete the handoff file using Bash: `rm .bee/pause-handoff.md`. Proceed to the "Context Restoration Briefing" section below. In the briefing's "What To Do Next" section (section 5), add a "Pause recommendation" banner showing the extracted next command so the user sees it in context.
-- **Show full briefing**: Leave `.bee/pause-handoff.md` on disk for reference. Proceed to the "Context Restoration Briefing" section below.
+- **Continue (delete handoff)**: First, extract the "Next Action" suggestion from the handoff content already loaded in context above. Then delete the handoff file using Bash: `rm .bee/specs/<slug>/pause-handoff.md` (or the legacy path `.bee/pause-handoff.md` if that was used as fallback). Proceed to the "Context Restoration Briefing" section below. In the briefing's "What To Do Next" section (section 5), add a "Pause recommendation" banner showing the extracted next command so the user sees it in context.
+- **Show full briefing**: Leave the handoff file on disk for reference (at `.bee/specs/<slug>/pause-handoff.md` or legacy path). Proceed to the "Context Restoration Briefing" section below.
 - **Custom**: Wait for free-text input from the user and act on it.
 
 Both "Continue" and "Show full briefing" fall through to the full 7-section Context Restoration Briefing below.
@@ -173,13 +201,18 @@ If there are multiple phases, show which ones are complete and which remain.
 
 **3. Session Context (if available)**
 
-If `NO_SESSION_CONTEXT` does NOT appear in the injected context (meaning `.bee/COMPACT-CONTEXT.md` or `.bee/SESSION-CONTEXT.md` was found), this contains a snapshot of the working state from the last session. Present:
+After the resolver has established the resolved slug, look up the per-spec session context:
+1. Try `.bee/specs/<resolved-slug>/COMPACT-CONTEXT.md` first (preferred — richer context).
+2. If not found, try `.bee/specs/<resolved-slug>/SESSION-CONTEXT.md`.
+3. If neither per-spec file exists, do NOT fall back to the global `.bee/COMPACT-CONTEXT.md` or `.bee/SESSION-CONTEXT.md` — these may describe a different spec. Instead, note: "No saved session context for this spec." and skip this section.
+
+**Spec-match guard:** Before presenting any session context (whether per-spec or the pre-loaded global), verify that the snapshot's spec path or name matches the resolved slug. If the snapshot's `Spec:` / `Path:` / `**Active spec:**` field does NOT contain the resolved slug, suppress the snapshot entirely with: "Session context snapshot is for a different spec — suppressed to avoid misleading context." Do NOT show mismatched context.
+
+If valid per-spec session context is found:
 - What was actively being worked on
 - Any pending decisions or choices the developer needs to make
 - Wave progress (if mid-execution): which tasks are complete, which remain
 - Any warnings or blockers noted in the session context
-
-If `NO_SESSION_CONTEXT` appears, note: "No session context saved from last time." and skip this section.
 
 **4. Phase Details (if mid-execution)**
 

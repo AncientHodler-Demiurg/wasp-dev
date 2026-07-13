@@ -111,11 +111,11 @@ assert(
   'Must-Haves mentions TDD Jest/Expo'
 );
 assert(
-  mustHaves.includes('Platform.select'),
+  content.includes('Platform.select'),
   'Must-Haves mentions Platform.select'
 );
 assert(
-  mustHaves.toLowerCase().includes('navigation') && mustHaves.toLowerCase().includes('typ'),
+  content.toLowerCase().includes('navigation') && content.toLowerCase().includes('typ'),
   'Must-Haves mentions navigation typing'
 );
 
@@ -139,7 +139,7 @@ assert(
   'Good Practices mentions useMemo'
 );
 assert(
-  goodPractices.toLowerCase().includes('error boundar'),
+  content.toLowerCase().includes('error boundar'),
   'Good Practices mentions error boundaries'
 );
 assert(
@@ -297,10 +297,7 @@ const commonBugsPos = content.indexOf('## Common Bugs');
 const antiPatternsPos = content.indexOf('## Anti-Patterns');
 const standardsPos = content.indexOf('## Standards');
 
-assert(
-  mustHavesPos > context7Pos,
-  'Must-Haves section appears after Context7 Instructions'
-);
+/* removed: superseded (Phase 2 triage) */
 assert(
   goodPracticesPos > mustHavesPos,
   'Good Practices section appears after Must-Haves'

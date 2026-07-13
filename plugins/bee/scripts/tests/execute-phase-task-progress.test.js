@@ -37,7 +37,15 @@ function contentFrom(marker, fullContent) {
   return fullContent.substring(idx);
 }
 
-const content = fs.readFileSync(EXECUTE_PHASE_PATH, 'utf8');
+let content = fs.readFileSync(EXECUTE_PHASE_PATH, 'utf8');
+// v4.7: execute-phase routes its wave-execution core through the shared
+// wave-execution skill — the contract is pinned on the execution path.
+if (content.includes('skills/wave-execution/SKILL.md')) {
+  content += fs.readFileSync(
+    path.join(__dirname, '..', '..', 'skills', 'wave-execution', 'SKILL.md'),
+    'utf8'
+  );
+}
 
 // ============================================================
 // Test 1: Step 5a includes TaskCreate after context packet assembly
@@ -71,7 +79,10 @@ assert(
 // ============================================================
 console.log('\nTest 2: Step 5b calls TaskUpdate in-progress');
 
-const step5b = contentBetween('**5b.', '**5c.', content);
+const step5b = contentBetween('**5b.', '**5c.', content) +
+  (content.includes('## Spawn (Parallel Implementers)')
+    ? contentBetween('## Spawn (Parallel Implementers)', '## Success Handling', content)
+    : '');
 
 assert(
   step5b.includes('TaskUpdate') && step5b.includes('in-progress'),
@@ -104,7 +115,10 @@ assert(
 );
 
 // TaskUpdate completed should be associated with the success path
-const successSection = contentBetween('**On success', '**On failure', step5c);
+const successSection = contentBetween('**On success', '**On failure', step5c) +
+  (content.includes('## Success Handling (TASKS.md Choreography)')
+    ? content.substring(content.indexOf('## Success Handling (TASKS.md Choreography)'))
+    : '');
 assert(
   successSection.includes('TaskUpdate') && successSection.includes('completed'),
   'TaskUpdate completed is in the On success section'

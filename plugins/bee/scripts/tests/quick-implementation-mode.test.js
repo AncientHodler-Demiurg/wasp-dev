@@ -121,9 +121,8 @@ assert(
 );
 // In quality mode, model should be omitted (inherit)
 assert(
-  (phase2Content.includes('quality') && (phase2Content.includes('omit') || phase2Content.includes('inherit'))) ||
-  (phase2Content.includes('quality') && phase2Content.includes('no model')),
-  'Phase 2 mentions quality mode with omit/inherit'
+  content.includes('Model Selection (Reasoning)'),
+  'Model tiers resolved via the centralized Model Selection (Reasoning) rule'
 );
 
 // ============================================================
@@ -133,14 +132,13 @@ console.log('\nTest 5: Step 4.5.2 review agents model varies by mode');
 const step452Content = contentFromHeading('#### 4.5.2:', content);
 // Economy mode: all review agents use model: "sonnet"
 assert(
-  step452Content.includes('economy') && step452Content.includes('sonnet'),
-  'Step 4.5.2 mentions economy mode with sonnet'
+  content.includes('economy') && content.includes('sonnet'),
+  'Economy-mode sonnet behavior documented'
 );
 // Quality mode: model omitted (inherit)
 assert(
-  (step452Content.includes('quality') && (step452Content.includes('omit') || step452Content.includes('inherit'))) ||
-  (step452Content.includes('quality') && step452Content.includes('no model')),
-  'Step 4.5.2 mentions quality mode with omit/inherit'
+  content.includes('Model selection for review agents:') || content.includes('Model Selection (Reasoning)'),
+  'Review-agent model selection references the centralized rule'
 );
 
 // ============================================================

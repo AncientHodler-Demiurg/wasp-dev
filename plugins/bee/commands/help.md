@@ -30,6 +30,7 @@ Setup
 
 Spec
   new-spec      {description}
+  spec          [list|use|status|promote|dashboard] -- multi-spec: list/switch active specs, promote one to its own worktree for parallel execution
   discuss       {description} -- supports --batch for batch proposal mode
   add-phase     {description}
 

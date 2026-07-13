@@ -1,7 +1,12 @@
 #!/bin/bash
 # PreToolUse hook: validate linter/test gates before allowing git commit
 # Receives JSON on stdin with tool_input.command
-# Exit 0 with no stdout = allow, Exit 0 with JSON stdout = block
+# Output contract (three shapes):
+#   Exit 0 with no stdout                          = allow
+#   Exit 0 with {"decision":"block","reason":...}  = block
+#   Exit 0 with {"systemMessage":...}              = allow WITH a user-visible warning
+#     (used only by the bee self-gate: baselined known-failing suites, budget skips,
+#      and fail-open infrastructure notices must be visible without blocking)
 # Do NOT use set -euo pipefail -- handle missing files gracefully
 #
 # Strategy:
@@ -16,6 +21,17 @@
 #     Stacks themselves stay sequential for debuggability.
 #   - Fast-path: when no source files are staged at all (markdown-only commits,
 #     .bee/ writes, dotfiles, JSON/YAML), skip the gate entirely.
+#   - Bee self-gate (runs BEFORE the fast path): when the repo being committed is
+#     bee itself (stacks[0].name == "claude-code-plugin" AND plugins/bee/ exists),
+#     markdown IS source -- staged paths (incl. deletions + both rename endpoints)
+#     map to affected meta-test suites via affected-suites.js and run through
+#     run-meta-tests.js's subset entry point with the known-failing baseline and
+#     a 90s budget. Non-baselined failures block; baselined failures and budget
+#     skips warn-and-allow; infrastructure failures (runner exit 2, mapper crash,
+#     node absent, scripts not yet present) FAIL OPEN with a warning. Everything
+#     it invokes resolves from $CLAUDE_PROJECT_DIR (the working tree) -- this
+#     script itself runs from the installed plugin cache. Non-bee projects are
+#     untouched: detection short-circuits and the original flow continues.
 #
 # Robustness:
 #   - xargs reads null-delimited input so filenames with spaces or quotes pass
@@ -46,6 +62,52 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 
 cd "$CLAUDE_PROJECT_DIR" 2>/dev/null || exit 0
+
+# --- Bee self-gate (before the fast path: bee's deliverables are markdown) ----
+BEE_STACK=$(jq -r '.stacks[0].name // empty' "$CONFIG_FILE" 2>/dev/null)
+if [ "$BEE_STACK" = "claude-code-plugin" ] && [ -d "$CLAUDE_PROJECT_DIR/plugins/bee" ]; then
+  BEE_RUNNER="$CLAUDE_PROJECT_DIR/plugins/bee/scripts/run-meta-tests.js"
+  BEE_MAPPER="$CLAUDE_PROJECT_DIR/plugins/bee/scripts/affected-suites.js"
+  if [ -f "$BEE_RUNNER" ] && [ -f "$BEE_MAPPER" ] && command -v node >/dev/null 2>&1; then
+    # Own staged list: include deletions and BOTH rename endpoints (a deleted or
+    # renamed roster-pinned file is the highest-value mapping input). ALL_STAGED
+    # below stays --diff-filter=ACM for the non-bee flow.
+    BEE_STAGED=$(git diff --cached --name-status -M 2>/dev/null | awk -F'\t' '{ for (i=2; i<=NF; i++) print $i }')
+    if [ -n "$BEE_STAGED" ]; then
+      BEE_AFFECTED=$(echo "$BEE_STAGED" | node "$BEE_MAPPER" --root "$CLAUDE_PROJECT_DIR" --stdin 2>/dev/null)
+      BEE_MAP_RC=$?
+      if [ "$BEE_MAP_RC" != "0" ]; then
+        # Fail open on tooling failure -- visible, never blocking.
+        echo '{"systemMessage": "bee self-gate: affected-suites mapper failed -- commit allowed WITHOUT meta-test gating (fail-open). Run: node plugins/bee/scripts/run-meta-tests.js"}'
+        exit 0
+      fi
+      if [ -n "$BEE_AFFECTED" ]; then
+        BEE_OUT=$(echo "$BEE_AFFECTED" | node "$BEE_RUNNER" --root "$CLAUDE_PROJECT_DIR" --subset-stdin --budget-ms 90000 --suite-timeout-ms 60000 2>/dev/null)
+        BEE_RC=$?
+        if [ "$BEE_RC" = "1" ]; then
+          BEE_FAILS=$(echo "$BEE_OUT" | grep '^FAIL ' | head -10)
+          jq -nc --arg r "Pre-commit gate (bee meta-tests): non-baselined suite(s) failing -- fix before committing.
+$BEE_FAILS" '{"decision":"block","reason":$r}'
+          exit 0
+        elif [ "$BEE_RC" = "2" ]; then
+          echo '{"systemMessage": "bee self-gate: meta-test runner infrastructure failure -- commit allowed WITHOUT gating (fail-open). Run: node plugins/bee/scripts/run-meta-tests.js"}'
+          exit 0
+        fi
+        BEE_NOTES=$(echo "$BEE_OUT" | grep -E '^(WARN|SKIP) ')
+        if [ -n "$BEE_NOTES" ]; then
+          jq -nc --arg m "bee self-gate: commit allowed with warnings:
+$BEE_NOTES" '{"systemMessage":$m}'
+          exit 0
+        fi
+      fi
+    fi
+    # Zero staged / zero affected / all PASS: fall through to the original flow
+    # (purely additive -- bee's own linter/testRunner are "none", so the original
+    # flow is a no-op for bee, but a future configured linter would still run).
+  fi
+  # Runner/mapper not present yet (pre-Phase-1 tree): fail open silently.
+fi
+# --- end bee self-gate ---------------------------------------------------------
 
 # Fast-path: if no source files are staged, skip gate entirely so
 # markdown-only / config-only / dotfile commits don't pay any lint/test cost.

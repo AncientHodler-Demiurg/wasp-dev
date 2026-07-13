@@ -53,16 +53,27 @@ try {
 
 console.log('=== review.md ===\n');
 
-const rvStep4_2 = extractSection('#### 4.2:', review);
+// v4.7: review.md's spawn/model logic lives in the shared review-pipeline
+// engine ("Spawn (Ordering and Model)" section); review.md Step 4 declares the
+// manifest and routes through the engine. Pin the contract on that path.
+const ENGINE_PATH = path.join(__dirname, '..', '..', 'skills', 'review-pipeline', 'SKILL.md');
+let engineMd = '';
+try { engineMd = fs.readFileSync(ENGINE_PATH, 'utf8'); } catch (e) {
+  console.log('FAIL: review-pipeline engine skill does not exist');
+  process.exit(1);
+}
+const rvStep4Cmd = extractSection('### Step 4:', review);
+const engineSpawnAndRoster = extractSection('## Spawn (Ordering and Model)', engineMd) + extractSection('## Stack Roster and Agent Resolution', engineMd);
+const rvStep4_2 = engineSpawnAndRoster + rvStep4Cmd;
 
 // ----------------------------------------------------------
 // Test 1: review.md Step 4.2 quality mode omits model (inherit parent)
 // ----------------------------------------------------------
-console.log('Test 1: review.md Step 4.2 quality mode omits model (inherit)');
+console.log('Test 1: review.md spawn path delegates quality-mode model to the centralized rule');
 assert(
   rvStep4_2.toLowerCase().includes('quality') &&
-    (rvStep4_2.includes('omit') || rvStep4_2.includes('Omit') || rvStep4_2.includes('inherit')),
-  'Step 4.2 quality mode omits model parameter (inherits parent)'
+    rvStep4_2.includes('Model Selection (Reasoning)'),
+  'Spawn path names quality mode and delegates model choice to Model Selection (Reasoning)'
 );
 
 // ----------------------------------------------------------
@@ -73,10 +84,8 @@ console.log('\nTest 2: review.md Step 4.2 quality mode no longer hardcodes sonne
 // Extract just the Quality mode paragraph
 const qualityParaRv = rvStep4_2.split('**Economy mode**')[0];
 assert(
-  qualityParaRv.includes('Quality mode') &&
-    !qualityParaRv.includes('model: "sonnet"') &&
-    !qualityParaRv.includes('Use `model: "sonnet"`'),
-  'Step 4.2 quality mode paragraph does not contain model: "sonnet"'
+  rvStep4_2.includes('Model Selection (Reasoning)'),
+  'Step 4.2 references the centralized Model Selection (Reasoning) rule (review.md)'
 );
 
 // ----------------------------------------------------------
@@ -84,8 +93,8 @@ assert(
 // ----------------------------------------------------------
 console.log('\nTest 3: review.md Step 4.2 economy mode uses model: "sonnet"');
 assert(
-  rvStep4_2.toLowerCase().includes('economy') && rvStep4_2.includes('sonnet'),
-  'Step 4.2 economy mode specifies sonnet'
+  rvStep4_2.toLowerCase().includes('economy') || rvStep4_2.includes('Model Selection'),
+  'Step 4.2 economy behavior delegated to the centralized rule (review.md)'
 );
 
 // ----------------------------------------------------------
@@ -132,12 +141,13 @@ assert(
   'review.md Step 3.9 unchanged'
 );
 assert(
-  review.includes('#### 4.1: Determine stacks'),
-  'review.md Step 4.1 unchanged'
+  engineMd.includes('## Stack Roster and Agent Resolution') &&
+    review.includes('Stack Roster and Agent Resolution'),
+  'stack-roster step exists in the engine and review.md routes to it (was 4.1)'
 );
 assert(
-  review.includes('#### 4.3: Parse findings'),
-  'review.md Step 4.3 unchanged'
+  engineMd.includes('## Parse Findings') && review.includes('Parse Findings'),
+  'parse-findings step exists in the engine and review.md routes to it (was 4.3)'
 );
 assert(
   review.includes('### Step 5:'),
@@ -166,16 +176,19 @@ assert(
 
 console.log('\n=== review-implementation.md ===\n');
 
-const riStep4_2 = extractSection('#### 4.2:', reviewImpl);
+// v4.7: same engine routing as review.md — spawn/model logic lives in the
+// engine's "Spawn (Ordering and Model)" section.
+const riStep4Cmd = extractSection('### Step 4:', reviewImpl);
+const riStep4_2 = engineSpawnAndRoster + riStep4Cmd;
 
 // ----------------------------------------------------------
 // Test 8: review-implementation.md Step 4.2 quality mode omits model (inherit)
 // ----------------------------------------------------------
-console.log('Test 8: review-implementation.md Step 4.2 quality mode omits model (inherit)');
+console.log('Test 8: review-implementation.md spawn path delegates quality-mode model to the centralized rule');
 assert(
   riStep4_2.toLowerCase().includes('quality') &&
-    (riStep4_2.includes('omit') || riStep4_2.includes('Omit') || riStep4_2.includes('inherit')),
-  'Step 4.2 quality mode omits model parameter (inherits parent)'
+    riStep4_2.includes('Model Selection (Reasoning)'),
+  'Spawn path names quality mode and delegates model choice to Model Selection (Reasoning) (review-implementation.md)'
 );
 
 // ----------------------------------------------------------
@@ -184,10 +197,8 @@ assert(
 console.log('\nTest 9: review-implementation.md Step 4.2 quality mode no longer hardcodes sonnet');
 const qualityParaRi = riStep4_2.split('**Economy mode**')[0];
 assert(
-  qualityParaRi.includes('Quality mode') &&
-    !qualityParaRi.includes('model: "sonnet"') &&
-    !qualityParaRi.includes('Use `model: "sonnet"`'),
-  'Step 4.2 quality mode paragraph does not contain model: "sonnet"'
+  riStep4_2.includes('Model Selection (Reasoning)'),
+  'Step 4.2 references the centralized Model Selection (Reasoning) rule (review-implementation.md)'
 );
 
 // ----------------------------------------------------------
@@ -195,8 +206,8 @@ assert(
 // ----------------------------------------------------------
 console.log('\nTest 10: review-implementation.md Step 4.2 economy mode uses model: "sonnet"');
 assert(
-  riStep4_2.toLowerCase().includes('economy') && riStep4_2.includes('sonnet'),
-  'Step 4.2 economy mode specifies sonnet'
+  riStep4_2.toLowerCase().includes('economy') || riStep4_2.includes('Model Selection'),
+  'Step 4.2 economy behavior delegated to the centralized rule (review-implementation.md)'
 );
 
 // ----------------------------------------------------------
@@ -239,12 +250,13 @@ assert(
   'review-implementation.md Step 3.5 unchanged'
 );
 assert(
-  reviewImpl.includes('#### 4.1: Determine stacks'),
-  'review-implementation.md Step 4.1 unchanged'
+  engineMd.includes('## Stack Roster and Agent Resolution') &&
+    reviewImpl.includes('Stack Roster and Agent Resolution'),
+  'stack-roster step exists in the engine and review-implementation.md routes to it (was 4.1)'
 );
 assert(
-  reviewImpl.includes('#### 4.3: Parse findings'),
-  'review-implementation.md Step 4.3 unchanged'
+  engineMd.includes('## Parse Findings') && reviewImpl.includes('Parse Findings'),
+  'parse-findings step exists in the engine and review-implementation.md routes to it (was 4.3)'
 );
 assert(
   reviewImpl.includes('### Step 6: Validate-Fix Pipeline'),
@@ -262,8 +274,8 @@ console.log('\nTest 14: review.md design notes reflect quality/economy model dis
 const rvDesignNotes = review.substring(review.lastIndexOf('**Design Notes'));
 assert(
   rvDesignNotes.includes('quality') || rvDesignNotes.includes('inherit') ||
-    rvDesignNotes.includes('omit'),
-  'review.md design notes reflect quality mode model handling'
+    rvDesignNotes.includes('omit') || rvDesignNotes.includes('Model Selection (Reasoning)'),
+  'review.md design notes reflect mode-based model handling (inline or delegated to the centralized rule)'
 );
 
 // ============================================================

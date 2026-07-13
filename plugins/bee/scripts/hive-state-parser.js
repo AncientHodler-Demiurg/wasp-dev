@@ -57,13 +57,13 @@ function extractSection(content, heading) {
 function parseCurrentSpec(content) {
   const spec = { name: null, path: null, status: null };
 
-  const nameMatch = content.match(/^- Name:\s*(.+)$/m);
+  const nameMatch = content.match(/^- Name:[ \t]*(.+)$/m);
   if (nameMatch) spec.name = nameMatch[1].trim();
 
   const pathMatch = content.match(/^- Path:\s*\.bee\/specs\/([^/\s]+)/m);
   if (pathMatch) spec.path = pathMatch[1];
 
-  const statusMatch = content.match(/^- Status:\s*(.+)$/m);
+  const statusMatch = content.match(/^- Status:[ \t]*(.+)$/m);
   if (statusMatch) spec.status = statusMatch[1].trim();
 
   return spec;
@@ -161,13 +161,13 @@ function parseLastAction(content) {
   const section = extractSection(content, 'Last Action');
   if (!section) return action;
 
-  const commandMatch = section.match(/^- Command:\s*(.+)$/m);
+  const commandMatch = section.match(/^- Command:[ \t]*(.+)$/m);
   if (commandMatch) action.command = commandMatch[1].trim();
 
-  const timestampMatch = section.match(/^- Timestamp:\s*(.+)$/m);
+  const timestampMatch = section.match(/^- Timestamp:[ \t]*(.+)$/m);
   if (timestampMatch) action.timestamp = timestampMatch[1].trim();
 
-  const resultMatch = section.match(/^- Result:\s*(.+)$/m);
+  const resultMatch = section.match(/^- Result:[ \t]*(.+)$/m);
   if (resultMatch) action.result = resultMatch[1].trim();
 
   return action;

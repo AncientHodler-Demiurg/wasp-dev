@@ -6,7 +6,7 @@ A Claude Code plugin that enforces disciplined, spec-driven development with TDD
 
 Bee structures your development workflow into a lifecycle: **Spec > Plan > Execute > Review > Test > Commit**. Each step produces artifacts on disk, every feature goes through review gates, and 33 specialized agents handle different aspects of the work — including 11 dedicated audit agents for deep codebase analysis. The Bee Hive dashboard gives you a live web UI over all of it so reading long phase plans, reviewing reports, and navigating notes is a click instead of a cat/less dance.
 
-## Commands (28)
+## Commands (52)
 
 ### Setup & Navigation
 | Command | Args | Description |
@@ -15,11 +15,16 @@ Bee structures your development workflow into a lifecycle: **Spec > Plan > Execu
 | `/bee:progress` | | Show project state, phase progress, and suggest next action |
 | `/bee:resume` | | Resume work from previous session with full context restoration |
 | `/bee:compact` | | Smart compact — preserve bee context, then compress conversation |
-| `/bee:memory` | | View and manage user preferences (`.bee/user.md`) |
+| `/bee:memory` | | View and manage memory — global preferences (`user.md`) and per-spec memory |
 | `/bee:refresh-context` | | Re-run codebase context extraction, overwriting CONTEXT.md with fresh analysis |
 | `/bee:create-agent` | `[agent-name]` | Create a custom project-local agent extension for bee |
 | `/bee:create-skill` | `[skill-name]` | Create a custom project-local skill extension for bee |
 | `/bee:update` | | Update bee statusline and clean up legacy local copies |
+
+### Multi-Spec
+| Command | Args | Description |
+|---------|------|-------------|
+| `/bee:spec` | `[list\|use <slug>\|status\|promote <slug>\|dashboard]` | List active specs, switch focus, show status, promote to a parallel worktree, or dashboard all active specs |
 
 ### Specification
 | Command | Args | Description |
@@ -83,6 +88,10 @@ Bee structures your development workflow into a lifecycle: **Spec > Plan > Execu
 10. /bee:review-implementation  # Final spec compliance check (5 agents including audit-bug-detector)
 11. /bee:archive-spec           # Archive and reset
 ```
+
+### Multiple Specs in Parallel
+
+`/bee:new-spec` always creates a new spec without touching the currently focused one. Use `/bee:spec promote <slug>` to move a spec into its own git worktree for isolated execution, then `/bee:workspace complete` to merge back.
 
 ### Autonomous Pipeline Workflow (Walk Away)
 

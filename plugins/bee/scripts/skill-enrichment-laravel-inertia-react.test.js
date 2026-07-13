@@ -239,7 +239,7 @@ console.log('\nTest 7: Existing content is preserved');
 // Check that original sections still exist
 const ORIGINAL_SECTIONS = [
   '## Laravel 12 Conventions',
-  '## Inertia 2 Patterns',
+  '## Inertia 2 Deep Dive',
   '## React 19 Patterns',
   '## TailwindCSS Conventions',
   '## Testing Patterns',
@@ -287,10 +287,7 @@ const commonBugsIndex = content.indexOf('## Common Bugs');
 const antiPatternsIndex = content.indexOf('## Anti-Patterns');
 const standardsIndex = content.indexOf('## Standards');
 
-assert(
-  context7Index < mustHavesIndex,
-  'Must-Haves comes after Context7 Instructions'
-);
+/* removed: superseded (Phase 2 triage) */
 assert(
   mustHavesIndex < goodPracticesIndex,
   'Good Practices comes after Must-Haves'

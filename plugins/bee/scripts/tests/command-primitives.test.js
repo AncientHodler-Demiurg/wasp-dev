@@ -86,6 +86,7 @@ if (skillContent !== null) {
     'Per-Stack Agent Resolution',
     'Auto-Fix Loop (Autonomous)',
     'Re-Review Loop (Interactive)',
+    'Conversation Context Capture',
   ];
 
   for (const section of REQUIRED_SECTIONS) {
@@ -105,6 +106,15 @@ if (skillContent !== null) {
   assert(
     skillContent.includes('Context Cache (read once, pass to all agents)'),
     'SKILL.md contains the "Context Cache (read once, pass to all agents)" literal'
+  );
+  // Owned source-boundary rule for Conversation Context Capture. Lives ONLY
+  // here; if a command file copied it instead of referencing the primitive by
+  // name, the per-command negative assertion below would fire. This positive
+  // assertion fails if a refactor deletes the rule from SKILL.md, which would
+  // silently drop the boundary that stops re-injecting already-persisted state.
+  assert(
+    skillContent.includes('Capture only chat after the most recent state-loading command'),
+    'SKILL.md owns the "Capture only chat after the most recent state-loading command" source-boundary rule (single source of truth — commands reference by name, never copy)'
   );
 }
 
@@ -153,17 +163,20 @@ const AFL_AUTONOMOUS = ['ship.md', 'plan-all.md', 'quick-phase.md'];
 // cleanup consolidates references, lower the corresponding number here.
 const MIN_REFERENCES = {
   'ship.md': 7,                   // VG, BTG-A, CC, SLR (via BTG), MSI, PSAR, AFL
-  'review.md': 5,                 // VG, BTG-I, CC, MSI, PSAR
+  'review.md': 3,                 // VG, BTG-I, CC (MSI + PSAR consolidated into the review-pipeline engine in v4.7)
   'plan-all.md': 3,               // VG, MSI, AFL
   'plan-phase.md': 3,             // VG, MSI, CC
-  'quick.md': 5,                  // VG, BTG-I, CC, MSI (reasoning), MSI (scanning)
+  'quick.md': 6,                  // VG, BTG-I, CC, MSI (reasoning), MSI (scanning), Conversation Context Capture
   'complete-spec.md': 1,          // VG
   'archive-spec.md': 1,           // VG
-  'review-implementation.md': 5,  // VG, BTG-I, CC, MSI, PSAR
+  'review-implementation.md': 3,  // VG, BTG-I, CC (MSI + PSAR consolidated into the review-pipeline engine in v4.7)
   'audit.md': 1,                  // CC
   'eod.md': 1,                    // CC
   'execute-phase.md': 1,          // CC
-  'quick-phase.md': 6,            // VG, BTG-A, CC, MSI (reasoning), MSI (scanning), AFL
+  'quick-phase.md': 7,            // VG, BTG-A, CC, MSI (reasoning), MSI (scanning), AFL, Conversation Context Capture
+  '../skills/review-pipeline/SKILL.md': 2, // MSI (Spawn), PSAR (Stack Roster) — consolidated here from review.md in v4.7
+  'new-spec.md': 1,               // Conversation Context Capture (first skill reference)
+  'discuss.md': 1,                // Conversation Context Capture (first skill reference)
 };
 
 // ---------------------------------------------------------------------------
@@ -558,8 +571,16 @@ const GENUINE_FP_PRODUCER_COMMANDS = [
   'quick.md',
 ];
 
+const REVIEW_ENGINE_CONTENT = readFile(
+  path.join(COMMANDS_DIR, '..', 'skills', 'review-pipeline', 'SKILL.md')
+) || '';
+
 for (const cmd of GENUINE_FP_PRODUCER_COMMANDS) {
-  const cmdContent = readFile(path.join(COMMANDS_DIR, cmd));
+  let cmdContent = readFile(path.join(COMMANDS_DIR, cmd));
+  // v4.7: engine-routed commands carry the FP producer template in the engine.
+  if (cmdContent !== null && cmdContent.includes('skills/review-pipeline/SKILL.md')) {
+    cmdContent = cmdContent + REVIEW_ENGINE_CONTENT;
+  }
   // Canonical schema (review.md:354-362 source of truth): genuine FP producer
   // block has the sequence Finding -> Reason -> File -> Phase -> Date.
   const hasFileFieldInGenuineSchema =
@@ -678,9 +699,14 @@ console.log('\n=== v4.4.0 Surface Contracts — ship.md Step 3b.8 MEDIUM escalat
 
 // F-BUG-006: ship.md Step 3b.8 MEDIUM escalation block contains "Batch up to 10 validators"
 const step3b8Region = shipMd.split('**3b.8')[1] ? shipMd.split('**3b.8')[1].split('**3b.9')[0] : '';
+// v4.7: the escalation mechanics live in the engine (parameterized batch size);
+// ship's 3b.8 routes there and its manifest declares batch size 10.
 assert(
-  /Batch up to 10 validators at a time/.test(step3b8Region),
-  'ship.md Step 3b.8 MEDIUM escalation contains "Batch up to 10 validators at a time"'
+  /Batch up to 10 validators at a time/.test(step3b8Region) ||
+    (/Validate Findings/.test(step3b8Region) &&
+      /Batch up to `\$VALIDATION_BATCH_SIZE`/.test(REVIEW_ENGINE_CONTENT) &&
+      /\$VALIDATION_BATCH_SIZE`?:?\s*`?\s*10/.test(shipMd)),
+  'ship.md Step 3b.8 MEDIUM escalation batches validators (inline or via engine batch-size 10 manifest)'
 );
 
 console.log('\n=== v4.4.0 Surface Contracts — exact-token regex for --full-final-review + --skip-discuss (F-004) ===');
@@ -802,6 +828,10 @@ if (thinkingSkill !== null) {
     /## Rule 12: Fail Visibly/.test(thinkingSkill),
     'thinking-principles skill defines Rule 12 (Fail Visibly)'
   );
+  assert(
+    /## Rule 13: LSP-First Navigation/.test(thinkingSkill),
+    'thinking-principles skill defines Rule 13 (LSP-First Navigation) — the single source of the LSP-vs-grep contract (agents reference, never copy)'
+  );
   // Negative: rules already covered structurally by bee are NOT duplicated here.
   // R5/R6 are unused in the source taxonomy (Karpathy 1-4 + author's R7-R12).
   assert(
@@ -822,15 +852,16 @@ if (thinkingSkill !== null) {
   );
 }
 
-console.log('\n=== Thinking Principles — Canonical references in 6 consumer agents ===');
+console.log('\n=== Thinking Principles — Canonical references in 7 consumer agents ===');
 
 const THINKING_PRINCIPLE_CONSUMERS = {
-  'implementer.md':       { rules: [8, 9, 12], titles: ['Read Before Write', 'Test Intent', 'Fail Visibly'] },
-  'quick-implementer.md': { rules: [8, 9, 12], titles: ['Read Before Write', 'Test Intent', 'Fail Visibly'] },
-  'researcher.md':        { rules: [8],        titles: ['Read Before Write'] },
-  'bug-detector.md':      { rules: [7, 12],    titles: ['Surface Conflicts', 'Fail Visibly'] },
-  'pattern-reviewer.md':  { rules: [7],        titles: ['Surface Conflicts'] },
-  'fixer.md':             { rules: [12],       titles: ['Fail Visibly'] },
+  'implementer.md':       { rules: [8, 9, 12, 13], titles: ['Read Before Write', 'Test Intent', 'Fail Visibly', 'LSP-First Navigation'] },
+  'quick-implementer.md': { rules: [8, 9, 12, 13], titles: ['Read Before Write', 'Test Intent', 'Fail Visibly', 'LSP-First Navigation'] },
+  'researcher.md':        { rules: [8, 13],        titles: ['Read Before Write', 'LSP-First Navigation'] },
+  'bug-detector.md':      { rules: [7, 12, 13],    titles: ['Surface Conflicts', 'Fail Visibly', 'LSP-First Navigation'] },
+  'pattern-reviewer.md':  { rules: [7, 13],        titles: ['Surface Conflicts', 'LSP-First Navigation'] },
+  'fixer.md':             { rules: [12, 13],       titles: ['Fail Visibly', 'LSP-First Navigation'] },
+  'debug-investigator.md': { rules: [13],          titles: ['LSP-First Navigation'] },
 };
 
 for (const [agentFile, expected] of Object.entries(THINKING_PRINCIPLE_CONSUMERS)) {
@@ -871,6 +902,43 @@ for (const [agentFile, expected] of Object.entries(THINKING_PRINCIPLE_CONSUMERS)
   }
 }
 
+console.log('\n=== LSP tool allowlists (Phase 3) — 10 restricted files + variant contract ===');
+
+// The 10 restricted agents that gained the read-only LSP navigation tool. Word-boundary
+// regex so `LSP` is matched as a tool name, not a substring of another token.
+// researcher.md inverse invariant (NO tools: line — inherit-all is HOW it gets LSP)
+// is ALREADY pinned at mcp-discovery.test.js:87-91 — referenced, not duplicated, same
+// treatment as the stack-implementer no-tools pin (mcp-discovery test 12).
+const LSP_ALLOWLIST_FILES = [
+  'pattern-reviewer.md', 'bug-detector.md', 'debug-investigator.md',
+  'fixer.md', 'implementer.md', 'quick-implementer.md',
+  'stacks/laravel-inertia-react/bug-detector.md', 'stacks/laravel-inertia-vue/bug-detector.md',
+  'stacks/laravel-inertia-react/pattern-reviewer.md', 'stacks/laravel-inertia-vue/pattern-reviewer.md',
+];
+for (const f of LSP_ALLOWLIST_FILES) {
+  const content = readFile(path.join(AGENTS_DIR, f));
+  assert(
+    content !== null && /^tools:.*\bLSP\b/m.test(content),
+    `${f} tools: allowlist grants the LSP tool — without it the Rule 13 contract is inert for this agent`
+  );
+}
+// Tool-without-contract is forbidden: the four stack variants REPLACE the generic
+// agents on exactly the Laravel projects where LSP is available (review.md routing),
+// so each must ALSO carry the Rule 13 reference + the thinking-principles skill.
+const LSP_VARIANT_FILES = LSP_ALLOWLIST_FILES.filter((f) => f.startsWith('stacks/'));
+for (const f of LSP_VARIANT_FILES) {
+  const content = readFile(path.join(AGENTS_DIR, f));
+  assert(
+    content !== null && /Rule\s*13\s*\(LSP-First Navigation\)/.test(content),
+    `${f} references Rule 13 (LSP-First Navigation) — variants substitute for generics on LSP-capable stacks; tool-without-contract is forbidden`
+  );
+  const fm = content && content.match(/^---\n([\s\S]+?)\n---/);
+  assert(
+    fm !== null && /^\s*-\s*thinking-principles\s*$/m.test(fm[1]),
+    `${f} frontmatter lists thinking-principles — required so the skill (and Rule 13) actually loads for the variant`
+  );
+}
+
 console.log('\n=== Thinking Principles — Test Quality Gate in implementer 3a (user-project tests) ===');
 
 // Pins the user-project test-quality gate prose in BOTH implementer agents
@@ -887,16 +955,7 @@ for (const agentFile of ['implementer.md', 'quick-implementer.md']) {
   );
 }
 
-console.log('\n=== Thinking Principles — Plan file backfill (Quick 019 bee:quick ceremony) ===');
-
-// Review fix PAT-003: bee:quick TDD convention requires a plan file at
-// .bee/quick/{NNN}-{slug}.md. Quick 019 plan file backfilled retroactively.
-const quick019PlanPath = path.join(__dirname, '..', '..', '..', '..', '.bee', 'quick', '019-thinking-principles-skill.md');
-const quick019Plan = readFile(quick019PlanPath);
-assert(
-  quick019Plan !== null && quick019Plan.length > 0,
-  '.bee/quick/019-thinking-principles-skill.md plan file exists (backfilled per review PAT-003; bee:quick ceremony compliance)'
-);
+/* removed: pinned gitignored .bee/ workspace state (grain rule: meta-tests pin repo contracts, not user workspace files) */
 
 console.log('\n=== Batch validator owned-literal anti-duplication (v4.5 T2.8) ===');
 
@@ -930,12 +989,33 @@ for (const [cmdFile, literals] of Object.entries(REVIEW_BATCH_LITERALS)) {
     assert(false, `${cmdFile} readable for batch-literal assertions`);
     continue;
   }
+  const engineRouted = content.includes('skills/review-pipeline/SKILL.md');
   for (const literal of literals) {
-    const count = countMatches(content, literal);
-    assert(
-      count === 1,
-      `${cmdFile} references "${literal}" exactly once — the aggregate-validate insertion point invoking this batch script (silent removal would defeat REQ-09 blocking signal)`
-    );
+    if (engineRouted) {
+      // v4.7 engine-routed commands: the command's manifest declares the bare
+      // script FILENAME exactly once; the engine owns the parameterized
+      // validators/batch/ invocation site. Both halves are load-bearing.
+      const bare = literal.replace('validators/batch/', '');
+      const count = countMatches(content, bare);
+      assert(
+        count === 1,
+        `${cmdFile} manifest declares "${bare}" exactly once — the $BATCH_VALIDATORS slot the engine invokes (silent removal would defeat REQ-09 blocking signal)`
+      );
+    } else {
+      const count = countMatches(content, literal);
+      assert(
+        count === 1,
+        `${cmdFile} references "${literal}" exactly once — the aggregate-validate insertion point invoking this batch script (silent removal would defeat REQ-09 blocking signal)`
+      );
+    }
+  }
+  if (engineRouted) {
+    for (const slot of ['agents', 'findings', 'escalation']) {
+      assert(
+        REVIEW_ENGINE_CONTENT.includes('validators/batch/{$BATCH_VALIDATORS.' + slot + '}'),
+        `review-pipeline engine has the parameterized validators/batch/ invocation site for the "${slot}" slot`
+      );
+    }
   }
   // Negative assertion: review.md and review-implementation.md are
   // interactive commands NOT in the autonomous-flag list per REQ-11. The
@@ -1103,10 +1183,21 @@ console.log('\n=== v4.5.0 Surface Contracts — pipeline orchestration bundle ==
   assert(/\*\*3f\.5:\s*Mid-pipeline cross-plan/.test(planAllMd), 'plan-all.md Step 3f.5 mid-pipeline cross-plan');
 
   // Sub-opt B: Dedup rules across 4 surfaces
+  // v4.7: review.md routes dedup through the shared engine — its surface is
+  // the engine's "Deduplicate and Merge (Rules 0-3)" section.
+  // Engine-routed surfaces (review.md, plan-phase.md, plan-all.md since v4.7)
+  // carry the rule text in the shared engine; their pin is the engine content
+  // plus the command's reference to the Deduplicate section.
+  const dedupEngineRouted = (cmd) => {
+    const c = readFile(path.join(COMMANDS_DIR, cmd));
+    return c && c.includes('Deduplicate and Merge (Rules 0')
+      ? c + REVIEW_ENGINE_CONTENT
+      : c;
+  };
   const dedupSurfaces = [
-    { file: 'review.md', content: readFile(path.join(COMMANDS_DIR, 'review.md')) },
-    { file: 'plan-phase.md', content: readFile(path.join(COMMANDS_DIR, 'plan-phase.md')) },
-    { file: 'plan-all.md', content: planAllMd },
+    { file: 'review.md (via review-pipeline engine)', content: REVIEW_ENGINE_CONTENT },
+    { file: 'plan-phase.md', content: dedupEngineRouted('plan-phase.md') },
+    { file: 'plan-all.md', content: dedupEngineRouted('plan-all.md') },
     { file: 'swarm-consolidator.md', content: readFile(path.join(AGENTS_DIR, 'swarm-consolidator.md')) },
   ];
   // The 3 new dedup rule phrases (canonical):
@@ -1126,10 +1217,13 @@ console.log('\n=== v4.5.0 Surface Contracts — pipeline orchestration bundle ==
 
   // Sub-opt C: phase-planner research tools + plan-phase Step 4 removed
   const phasePlannerMd = readFile(path.join(AGENTS_DIR, 'phase-planner.md'));
-  assert(phasePlannerMd.includes('mcp__context7__resolve-library-id'), 'phase-planner.md tools includes Context7 resolve');
-  assert(phasePlannerMd.includes('mcp__context7__query-docs'), 'phase-planner.md tools includes Context7 query');
+  assert(!phasePlannerMd.includes('mcp__context7__resolve-library-id'), 'phase-planner.md does NOT hardcode mcp__context7__resolve-library-id (now inherit-all; resolves Context7 via config.mcp.context7)');
+  assert(!phasePlannerMd.includes('mcp__context7__query-docs'), 'phase-planner.md does NOT hardcode mcp__context7__query-docs (now inherit-all; resolves Context7 via config.mcp.context7)');
   // skills frontmatter — match "context7" inside skills: list
   assert(/skills:\s*\n(?:\s*-\s*\w+\n)*\s*-\s*context7/.test(phasePlannerMd), 'phase-planner.md skills frontmatter includes context7');
+  // Placement stamp (REQ-07): class-creating tasks get a taxonomy-relative placement criterion promoted into acceptance: (not just research:).
+  // The phrase ties "placement taxonomy" to "acceptance" in the stamp region — proving the binding promotion is instructed, not the non-binding research-only form.
+  assert(/placement taxonomy[\s\S]{0,400}acceptance|acceptance[\s\S]{0,400}placement taxonomy/.test(phasePlannerMd), 'phase-planner.md stamps placement into acceptance criteria relative to the project placement taxonomy (REQ-07 binding stamp)');
 
   const planPhaseMd = readFile(path.join(COMMANDS_DIR, 'plan-phase.md'));
   assert(!/^###\s+Step 4:\s*Plan How.*[Rr]esearcher/m.test(planPhaseMd), 'plan-phase.md does NOT contain Step 4 Plan How (researcher pass removed)');
@@ -1227,6 +1321,73 @@ console.log('\n=== v4.5.0 Surface Contracts — quick-phase command ===');
   for (const expansion of operationalExpansions) {
     assert(quickPhaseMd.includes(expansion), `quick-phase.md Step 6.1 contains operational expansion: ${expansion}`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Conversation Context Capture (Quick-Phase 24) — paired-contract wiring across
+// the 4 entry-point commands. The primitive makes each orchestrator extract
+// conversation context into Decisions/Constraints/Ruled-out buckets and inject
+// it at two sites: the plan/notes artifact gets a `## Conversation Context`
+// section, and every spawned subagent prompt gets a `## Prior Discussion` block.
+// Roster-driven so adding/removing a consumer is a one-line edit (mirrors
+// CC_COMMANDS). The owned source-boundary literal asserted PRESENT-in-skill
+// above and ABSENT-in-every-command below is the paired contract that enforces
+// "reference the primitive by name, never copy its mechanics".
+// ---------------------------------------------------------------------------
+
+console.log('\n=== Conversation Context Capture (Quick-Phase 24) — 4-command wiring ===');
+
+const CONTEXT_CAPTURE_COMMANDS = ['quick.md', 'quick-phase.md', 'new-spec.md', 'discuss.md'];
+
+for (const rel of CONTEXT_CAPTURE_COMMANDS) {
+  const content = readFile(path.join(COMMANDS_DIR, rel));
+  console.log(`\nCommand: ${rel}`);
+  ensureCmdReadable(rel, content);
+  if (content === null) continue;
+
+  // (a) Canonical reference to the skill — this is how the orchestrator knows to
+  // run the capture mechanics instead of inlining them. Removing it strands the
+  // command with no path to the primitive's gate/filtering/boundary rules.
+  assertSkillReferenced(rel, content);
+
+  // (b) Names the primitive by its section title so the reference resolves to
+  // Conversation Context Capture specifically (not some other primitive) — a
+  // bare skill-path reference is ambiguous without this.
+  assert(
+    /Conversation Context Capture/.test(content),
+    `${rel} names the Conversation Context Capture primitive by reference (resolves the skill path to this section, not another primitive)`
+  );
+
+  // (c) Plan/notes injection site present. The end-anchored regex pins the
+  // `## Conversation Context` heading (the captured buckets written into the
+  // plan/notes artifact) WITHOUT matching the `## Conversation Context Capture`
+  // skill-heading reference: leading `\s*` tolerates discuss.md's 4-space indent
+  // inside its write-notes prompt template (a hard `/^##/` anchor returns 0 for
+  // discuss.md), and trailing `\s*$` rejects the " Capture"-suffixed skill
+  // heading. Missing this heading means captured context never reaches the
+  // persistent artifact.
+  assert(
+    /^\s*##\s+Conversation Context\s*$/m.test(content),
+    `${rel} writes a "## Conversation Context" section into its plan/notes artifact so captured buckets persist beyond the live chat (end-anchored to avoid the "## Conversation Context Capture" skill-heading collision)`
+  );
+
+  // (d) Subagent injection site present. Without the `## Prior Discussion` block
+  // adjacent to the description/topic in the spawn prompt, subagents only receive
+  // the bare description string and lose the captured chat context entirely —
+  // this is the description-string-only gap the primitive closes.
+  assert(
+    /## Prior Discussion/.test(content),
+    `${rel} carries a "## Prior Discussion" block in its spawn prompt so subagents receive captured chat context (closes the description-string-only gap)`
+  );
+
+  // (e) Negative — the owned source-boundary literal must NOT be copied here. It
+  // lives only in SKILL.md; a copy would mean the command inlined the primitive's
+  // mechanics instead of referencing them, defeating the single-source-of-truth
+  // contract and drifting when SKILL.md updates.
+  assert(
+    !content.includes('Capture only chat after the most recent state-loading command'),
+    `${rel} does NOT copy the "Capture only chat after the most recent state-loading command" source-boundary literal (it references the primitive by name; the rule lives only in SKILL.md)`
+  );
 }
 
 // ---------------------------------------------------------------------------

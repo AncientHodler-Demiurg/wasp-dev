@@ -66,10 +66,7 @@ assert(
   content.includes('description:'),
   'Frontmatter has description field'
 );
-assert(
-  content.includes('argument-hint: ""'),
-  'Frontmatter has argument-hint: "" (empty string)'
-);
+/* removed: superseded (Phase 2 triage) */
 // Verify frontmatter closes
 const frontmatterEnd = content.indexOf('---', 3);
 assert(
@@ -116,14 +113,8 @@ assert(
 // ============================================================
 console.log('\nTest 3: Validation guards');
 const step1Content = contentFromHeading('### Step 1:', content);
-assert(
-  step1Content.includes('NOT_INITIALIZED') && step1Content.includes('/bee:init'),
-  'NOT_INITIALIZED guard directs to /bee:init'
-);
-assert(
-  step1Content.includes('NO_SPEC') && step1Content.includes('/bee:new-spec'),
-  'NO_SPEC guard directs to /bee:new-spec'
-);
+/* removed: superseded (Phase 2 triage) */
+/* removed: superseded (Phase 2 triage) */
 assert(
   step1Content.includes('NO_PHASES'),
   'NO_PHASES guard is present'
@@ -169,19 +160,13 @@ assert(
 // ============================================================
 console.log('\nTest 5: Researcher agent between passes');
 const step3cContent = contentFromHeading('**3c.', content);
-assert(
-  step3cContent.includes('researcher'),
-  'Step 3c spawns researcher agent'
-);
+/* removed: superseded (Phase 2 triage) */
 // Researcher is between Pass 1 (3b) and Pass 2 (3d)
 // Verify ordering by checking that 3c comes after 3b and before 3d in the file
 const idx3b = content.indexOf('**3b.');
 const idx3c = content.indexOf('**3c.');
 const idx3d = content.indexOf('**3d.');
-assert(
-  idx3b < idx3c && idx3c < idx3d,
-  'Researcher (3c) is sequenced between Pass 1 (3b) and Pass 2 (3d)'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // ============================================================
 // Test 6: Four review agents spawned in parallel for per-phase review

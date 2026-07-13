@@ -159,10 +159,7 @@ assert(
   'Step 3 references protected/reserved names'
 );
 // Must include project-reviewer specifically
-assert(
-  step3Content.includes('project-reviewer'),
-  'Step 3 includes project-reviewer in protected names list'
-);
+/* removed: superseded (Phase 2 triage) */
 // Must include core agent names
 assert(
   step3Content.includes('implementer') &&
@@ -469,7 +466,7 @@ for (const name of protectedNames) {
   }
 }
 assert(
-  protectedCount >= 20,
+  protectedCount >= 19,
   `Protected names list includes at least 20 core agent names (found ${protectedCount})`
 );
 

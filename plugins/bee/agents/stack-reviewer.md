@@ -73,6 +73,8 @@ Vendor citation is the predominant evidence mode for stack reviews -- stack-skil
 
 ### Violations Format
 
+Emit findings under a top-level `## Stack Best Practice Violations` section heading (consumers grep for this heading to locate this agent's findings).
+
 Output ONLY violations found. Do not confirm what is correct.
 
 Use the finding format defined in `skills/review/SKILL.md` "Output Format" section. Prefix finding IDs with category from the violated skill rule.

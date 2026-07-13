@@ -6,7 +6,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 
 const SRC_PATH = path.join(__dirname, '..', 'hive-spec-reader.js');
 
@@ -67,10 +66,99 @@ assert(mod && typeof mod.readPhaseTasks === 'function', 'exports readPhaseTasks(
 assert(mod && typeof mod.discoverActiveSpec === 'function', 'exports discoverActiveSpec(beeDir)');
 
 // Real reference spec directory
-const REFERENCE_SPEC_DIR = path.join(
-  __dirname, '..', '..', '..', '..',
-  '.bee', 'specs', '2026-04-10-bee-board-dashboard'
-);
+
+// ---------------------------------------------------------------------------
+// Fixture .bee tree (Phase 2 triage: these suites previously parsed the LIVE
+// .bee/STATE.md and real spec dirs -- stale-by-construction. The parser
+// behavior contract is unchanged; only the input is now synthetic.)
+// ---------------------------------------------------------------------------
+const os = require('os');
+function buildFixtureBee() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bee-hive-fix-'));
+  const bee = path.join(root, '.bee');
+  const specDir = path.join(bee, 'specs', '2026-04-10-bee-board-dashboard');
+  fs.mkdirSync(specDir, { recursive: true });
+  fs.writeFileSync(path.join(bee, 'STATE.md'), [
+    '# Bee Project State', '',
+    '## Current Spec',
+    '- Name: bee-hive-dashboard',
+    '- Path: .bee/specs/2026-04-10-bee-board-dashboard/',
+    '- Status: IN_PROGRESS', '',
+    '## Phases',
+    '| # | Name | Status | Plan | Plan Review | Executed | Reviewed | Tested | Committed |',
+    '|---|------|--------|------|-------------|----------|----------|--------|-----------|',
+    '| 1 | Server and Data API | REVIEWED | Yes | Yes (1) | Yes | Yes (1) | | |',
+    '| 2 | Lifecycle Management | REVIEWED | Yes | Yes (1) | Yes | Yes (1) | | |',
+    '| 3 | Dashboard SPA | REVIEWED | Yes | Yes (1) | Yes | Yes (1) | | |',
+    '| 4 | Activity Feed and Distribution | REVIEWED | Yes | Yes (1) | Yes | Yes (1) | | |', '',
+    '## Quick Tasks', '',
+    '| # | Description | Date | Commit |',
+    '|---|-------------|------|--------|', '',
+    '## Decisions Log', '',
+    '- **[Plan review auto-fix]:** fixture decision entry.',
+    '- **[Cross-plan review auto-fix]:** fixture decision entry.', '',
+    '## Last Action',
+    '- Command: /bee:test',
+    '- Timestamp: 2026-04-10T00:00:00Z',
+    '- Result: fixture', '',
+  ].join('\n'));
+  fs.writeFileSync(path.join(bee, 'config.json'), JSON.stringify({
+    stacks: [{ name: 'react', path: '.', linter: 'none', testRunner: 'none' }],
+  }, null, 2));
+  fs.writeFileSync(path.join(specDir, 'spec.md'), [
+    '# Specification: bee-hive-dashboard', '',
+    '## Goal',
+    'A Mission Control dashboard that surfaces live bee project state in the browser.', '',
+    '## User Stories',
+    '- As a developer, I want to see phases at a glance',
+    '- As a developer, I want to browse review reports',
+    '- As a developer, I want to see quick tasks',
+    '- As a developer, I want a live activity feed',
+    '- As a developer, I want spec docs rendered', '',
+  ].join('\n'));
+  const phaseNames = ['Server and Data API', 'Lifecycle Management', 'Dashboard SPA', 'Activity Feed and Distribution'];
+  fs.writeFileSync(path.join(specDir, 'phases.md'),
+    '# Phases\n\n' + phaseNames.map((n, i) => [
+      `## Phase ${i + 1}: ${n}`,
+      `**Description:** Delivers ${n.toLowerCase()}.`,
+      '**Deliverables:**', '- deliverable one', '- deliverable two', '- deliverable three',
+      `**Dependencies:** ${i === 0 ? 'None (first phase)' : 'Phase ' + i}`, '',
+    ].join('\n')).join('\n'));
+  fs.writeFileSync(path.join(specDir, 'requirements.md'), [
+    '# Requirements', '',
+    '### Functional Requirements',
+    '- [x] requirement one',
+    '- [ ] requirement two', '',
+    '### Non-Functional Requirements',
+    '- [x] requirement three', '',
+  ].join('\n'));
+  fs.writeFileSync(path.join(specDir, 'ROADMAP.md'), [
+    '# Roadmap', '',
+    '## Phase-Requirement Mapping', '',
+    '| Phase | Goal | Requirements | Success Criteria |',
+    '|-------|------|-------------|------------------|',
+    '| 1. Server and Data API | Serve hive data | REQ-01, REQ-02 | 1. API responds 2. Snapshot complete |',
+    '| 2. Lifecycle Management | Manage lifecycle | REQ-03 | 1. Lifecycle works |',
+    '| 3. Dashboard SPA | Render the SPA | REQ-04 | 1. SPA renders |',
+    '| 4. Activity Feed and Distribution | Live feed | REQ-05 | 1. Feed streams |', '',
+  ].join('\n'));
+  const slugs = ['01-server-and-data-api', '02-lifecycle-management', '03-dashboard-spa', '04-activity-feed-and-distribution'];
+  slugs.forEach((slug, i) => {
+    const d = path.join(specDir, 'phases', slug);
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, 'TASKS.md'), `# Phase ${i + 1}: ${phaseNames[i]} -- Tasks\n\n- [x] T${i + 1}.1 | fixture task | bee-implementer\n`);
+  });
+  fs.mkdirSync(path.join(bee, 'quick'), { recursive: true });
+  fs.writeFileSync(path.join(bee, 'quick', '001-review-quality-rules.md'), [
+    '# Quick Task 1: Add review quality rules', '',
+    '- Date: 2026-03-20',
+    '- Status: EXECUTED', '',
+    'Fixture quick task.', '',
+  ].join('\n'));
+  return bee;
+}
+
+const REFERENCE_SPEC_DIR = path.join(buildFixtureBee(), 'specs', '2026-04-10-bee-board-dashboard');
 
 // ============================================================
 // Test 3: readSpec parses the real reference spec.md
@@ -270,7 +358,7 @@ assert(
 // Test 13: discoverActiveSpec with real .bee directory
 // ============================================================
 console.log('\nTest 13: discoverActiveSpec with real .bee directory');
-const realBeeDir = path.join(__dirname, '..', '..', '..', '..', '.bee');
+const realBeeDir = path.join(REFERENCE_SPEC_DIR, '..', '..'); // the fixture .bee
 const discovered = mod.discoverActiveSpec(realBeeDir);
 assert(
   typeof discovered === 'string' && discovered.length > 0,

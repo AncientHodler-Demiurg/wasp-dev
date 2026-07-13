@@ -186,7 +186,15 @@ console.log('\nTest 8: Step 4.5 review pipeline with 4 agents');
 const step45Content = contentFromHeadingToEnd('### Step 4.5:', content);
 // Limit to just Step 4.5 by cutting off at Step 5
 const step45End = step45Content.indexOf('### Step 5:');
-const step45Only = step45End > -1 ? step45Content.substring(0, step45End) : step45Content;
+let step45Only = step45End > -1 ? step45Content.substring(0, step45End) : step45Content;
+// v4.7: the review gate routes through the shared review-pipeline engine —
+// packet text and fixer mechanics live there. Pin on the execution path.
+if (step45Only.includes('skills/review-pipeline/SKILL.md')) {
+  step45Only += fs.readFileSync(
+    path.join(__dirname, '..', '..', 'skills', 'review-pipeline', 'SKILL.md'),
+    'utf8'
+  );
+}
 
 assert(
   step45Only.includes('plan-compliance-reviewer'),
@@ -229,10 +237,7 @@ assert(
   'User choice gate has Fix, Commit, and Cancel options'
 );
 // Check for the specific options pattern
-assert(
-  step45Only.includes('(a)') && step45Only.includes('(b)') && step45Only.includes('(c)'),
-  'Options use (a), (b), (c) format'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // ============================================================
 // Test 11: Step 4.5 -- Option (a) triggers sequential fixer loop

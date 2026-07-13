@@ -1840,9 +1840,19 @@ console.log('\n\n=== Commands with inline finding-format hardcodes ===');
 
 const CMDS_WITH_INLINE_FORMAT = ['quick.md', 'review-implementation.md', 'review.md'];
 
+// v4.7: commands routed through the shared review-pipeline engine carry the
+// finding-format list there (engine "Write Report" section). The effective
+// content of such a command is command + engine.
+const REVIEW_ENGINE_MD = readFile(
+  path.join(COMMANDS_DIR, '..', 'skills', 'review-pipeline', 'SKILL.md')
+) || '';
+
 for (const cmd of CMDS_WITH_INLINE_FORMAT) {
   const p = path.join(COMMANDS_DIR, cmd);
-  const content = readFile(p);
+  let content = readFile(p);
+  if (content !== null && content.includes('skills/review-pipeline/SKILL.md')) {
+    content = content + REVIEW_ENGINE_MD;
+  }
   console.log(`\nCommand: ${cmd}`);
 
   assert(content !== null, `${cmd} exists and is readable`);

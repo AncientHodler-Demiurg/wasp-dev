@@ -62,13 +62,16 @@ Use the same next-command logic as `/bee:progress`:
 
 ### Step 3: Write Handoff File
 
-Write `.bee/pause-handoff.md` using the Write tool with this structure:
+Determine the per-spec handoff path: `.bee/specs/<slug>/pause-handoff.md` where `<slug>` is the Current Spec Path slug from STATE.md (e.g., if Path is `.bee/specs/my-feature/`, slug is `my-feature`). If NO_SPEC (no active spec), fall back to `.bee/pause-handoff.md` for the global path.
+
+Write the handoff to the per-spec path (or global fallback if no spec) using the Write tool with this structure:
 
 ```markdown
 ---
 paused_at: {ISO 8601 timestamp}
 branch: {current git branch}
 uncommitted: {count of uncommitted files}
+spec_slug: {Current Spec Path slug from STATE.md, e.g. "my-feature" — or empty string if NO_SPEC}
 ---
 
 # Pause Handoff
@@ -77,6 +80,7 @@ uncommitted: {count of uncommitted files}
 
 ## Current Position
 - **Spec:** {spec name} ({status}) -- or "No active spec"
+- **Spec Slug:** {Current Spec Path slug from STATE.md} -- or "(none)"
 - **Phase:** Phase {N} -- {phase name} ({phase status}) -- or "No active phase"
 - **Stack:** {stack from config.json}
 
@@ -110,14 +114,14 @@ Re-read `.bee/STATE.md` from disk (Read-Modify-Write pattern -- always read the 
 Update Last Action section:
 - Command: `/bee:pause`
 - Timestamp: current ISO 8601 timestamp
-- Result: "Work paused. Handoff saved to .bee/pause-handoff.md"
+- Result: "Work paused. Handoff saved to {per-spec handoff path}" (use `.bee/specs/<slug>/pause-handoff.md` if spec active, or `.bee/pause-handoff.md` if no spec)
 
 ### Step 4: Confirm
 
 Display to the user:
 
 ```
-Work paused. Handoff saved to .bee/pause-handoff.md
+Work paused. Handoff saved to .bee/specs/<slug>/pause-handoff.md
 
 Position: {spec name} > Phase {N} ({status})
 Branch: {branch} | Uncommitted: {count} files

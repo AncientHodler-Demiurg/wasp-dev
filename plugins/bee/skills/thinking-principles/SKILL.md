@@ -69,7 +69,10 @@ that marker.
 1. Read the target file's relevant section (export list, struct, frontmatter,
    step headings).
 2. Run `grep -rn <symbol-or-literal>` to find callers / consumers / sibling
-   sites.
+   sites. For SYMBOL-shaped discovery (a function, class, or exported binding
+   in a language with a configured server), prefer the LSP route per Rule 13
+   (LSP-First Navigation); grep remains the mechanism for string literals,
+   markdown, and config text.
 3. Read each caller/consumer briefly enough to confirm the change does not
    break their contract.
 4. If "looks orthogonal to me" is the basis for skipping any of the above,
@@ -208,3 +211,46 @@ run.
 
 **Output:** The success report explicitly lists completed steps,
 skipped/deferred steps, and any uncertainty about verification outcomes.
+
+## Rule 13: LSP-First Navigation
+
+When `config.lsp` reports language-server availability for the relevant stack
+(`lsp.{stack_name}.available: true` in `.bee/config.json`), prefer the `LSP`
+tool over grep for SYMBOL tracing: `findReferences` to enumerate callers and
+consumers, `goToDefinition` to resolve a symbol's source, and
+`incomingCalls`/`outgoingCalls` for call-hierarchy questions. A language
+server resolves references semantically — it sees aliased imports, re-exports,
+and method dispatch that a text grep misses, and it never false-positives on
+a name collision in a comment or string.
+
+Grep REMAINS the correct mechanism for: string literals (including
+string-addressed store keys), markdown and prose, config text, and as the
+universal fallback. LSP and grep answer different questions — "who references
+this symbol" vs "where does this text appear" — and symbol questions should
+get symbol answers when a server is available.
+
+**Inputs:** A symbol to trace + the stack it belongs to + `config.lsp`.
+
+**Behavior:**
+
+1. Check `config.lsp.{stack_name}.available`. When the section is absent
+   (older installs) or `false`, use grep exactly as before — this rule
+   activates nothing.
+2. When `true`: use `findReferences` for caller/consumer enumeration,
+   `goToDefinition` for source resolution, `incomingCalls`/`outgoingCalls`
+   for call chains. A zero-result `findReferences` on a symbol IS evidence of
+   an absent consumer (stronger than a zero-hit grep, which may merely have
+   the wrong pattern).
+3. If any LSP call errors (server died, file type uncovered), fall back to
+   grep SILENTLY — never surface LSP errors to the user, never retry-loop,
+   never block on the tool.
+4. String-shaped questions stay on grep even when LSP is available.
+
+**Failure mode this prevents:** Reference traces that miss aliased or
+re-exported callers; dead-code verdicts built on a mistyped grep pattern;
+review findings that under-count a symbol's blast radius on large TS/PHP
+codebases.
+
+**Output:** Symbol traces cite the lookup used ("findReferences on X: N
+references" or "grep -rn X: N hits") so reviewers can tell semantic evidence
+from textual evidence.

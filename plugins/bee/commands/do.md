@@ -50,7 +50,9 @@ Match the intent text against these keyword patterns. Use the FIRST match found:
 | add phase, new phase, extra phase | `/bee:add-phase` | Add a phase to spec |
 | insert phase, insert, urgent phase, hotfix phase, emergency phase | `/bee:insert-phase` | Insert phase between existing phases |
 | plan, decompose, break down | `/bee:plan-phase` | Plan a phase |
-| execute, implement, build, run phase | `/bee:execute-phase` | Execute a phase |
+| another feature, start another spec, second feature, while this builds, queue a spec, plan ahead, încă un spec, alt feature în paralel | `/bee:new-spec` | Queue a 2nd spec (does NOT archive the active one) |
+| build these two, build both, at the same time, concurrently, in parallel, în paralel, in paralel, două spec-uri, doua spec-uri, ambele spec-uri, isolate this spec, make a worktree for this spec, run this spec separately | `/bee:spec promote` | Promote spec to its own worktree for parallel work |
+| execute, implement, build phase, run phase, execute phase | `/bee:execute-phase` | Execute a phase |
 | ui spec, ui design, design contract, visual spec | `/bee:ui-spec` | Generate UI spec |
 | ui review, visual audit, ui audit, accessibility audit | `/bee:ui-review` | UI visual audit |
 | swarm, swarm review, deep review, multi-agent review, parallel review, gates audit, multiple reviewers, swarm audit | `/bee:swarm-review` | Swarm multi-agent review (subagent dispatch) |
@@ -64,11 +66,15 @@ Match the intent text against these keyword patterns. Use the FIRST match found:
 | test-gen, generate tests, coverage gap, requirement test | `/bee:test-gen` | Generate tests from requirements |
 | e2e, end to end, integration test | `/bee:test-e2e` | End-to-end testing |
 | test, run tests, test suite | `/bee:test` | Test scenarios |
-| spec, feature, new feature, design | `/bee:new-spec` | Create a spec |
+| list specs, my specs, active specs, switch spec, which spec, focus spec, use spec, spec-uri active, ce spec-uri, comută, comuta, schimbă spec, schimba spec, folosește spec, foloseste spec, lista spec-uri, dashboard spec-uri | `/bee:spec` | List/switch active specs |
+| promote spec, promote this spec, promote to worktree, to a worktree, worktree for this spec, build in parallel, two specs at once, parallel specs, run specs in parallel, work on both specs | `/bee:spec promote` | Promote spec to its own worktree |
+| spec dashboard, all specs status, spec overview | `/bee:spec dashboard` | Multi-spec roster overview |
+| feature, new feature, new spec, design idea | `/bee:new-spec` | Create a spec |
 | deploy, ship, release | `/bee:ship` | Ship to production |
 | status, progress, where am I | `/bee:progress` | Check progress |
 | metrics, statistics, velocity, bottleneck, performance data | `/bee:progress` | View phase metrics and bottleneck detection |
 | commit, save, push | `/bee:commit` | Commit changes |
+| remember for this spec, this spec only, spec constraint, always do X here, never do Y here, spec rule, ține minte pentru acest spec | `/bee:memory` | Per-spec memory (.bee/specs/<slug>/memory.md), injected into this spec's agents |
 | note, remember, idea | `/bee:note` | Capture a note |
 | pause, stop, break | `/bee:pause` | Pause work |
 | resume, continue, pick up | `/bee:resume` | Resume work |
@@ -80,10 +86,11 @@ Match the intent text against these keyword patterns. Use the FIRST match found:
 | context, refresh, extract context | `/bee:refresh-context` | Refresh context |
 | next, what's next, advance | `/bee:next` | Next workflow step |
 | thread, knowledge | `/bee:thread` | Knowledge threads |
-| workspace, worktree, parallel, isolated, workspace dashboard, conflict matrix, merge order, workspace depends, workspace check | `/bee:workspace` | Manage isolated workspaces |
+| workspace, worktree, isolated, workspace dashboard, conflict matrix, merge order, workspace depends, workspace check | `/bee:workspace` | Manage isolated workspaces |
 | seed list, manage seeds, review backlog, backlog, review seeds | `/bee:backlog` | Manage seed backlog |
 | seed, plant seed, capture idea, backlog idea | `/bee:seed` | Plant a seed idea |
 | audit spec, traceability, trace requirements, requirement coverage | `/bee:audit-spec` | Spec traceability audit |
+| merge back, merge it back, merge spec back, done with promoted spec, finish promoted spec, complete worktree, merge worktree back, gata cu spec-ul promovat | `/bee:workspace complete` | Merge a promoted spec's worktree (code + state) back in-place |
 | complete spec, finish spec, spec ceremony, finalize spec, milestone, version, tag | `/bee:complete-spec` | Full spec completion ceremony |
 | audit to spec, convert audit | `/bee:audit-to-spec` | Convert audit to spec |
 | audit, scan, audit code | `/bee:audit` | Code audit |
@@ -91,7 +98,7 @@ Match the intent text against these keyword patterns. Use the FIRST match found:
 | archive | `/bee:archive-spec` | Archive spec |
 | discuss batch, batch discuss, batch proposals, grey areas | `/bee:discuss --batch` | Batch discuss proposals |
 | discuss | `/bee:discuss` | Discuss spec |
-| memory, user.md, my rules, my settings, edit memory, view memory | `/bee:memory` | View/manage user preferences |
+| memory, user.md, my rules, my settings, edit memory, view memory | `/bee:memory` | View/manage memory: global user.md preferences and per-spec memory.md injected into this spec's agents |
 | create agent, custom agent, new agent, make agent, agent extension | `/bee:create-agent` | Create custom agent |
 | create skill, custom skill, new skill, add skill, skill extension | `/bee:create-skill` | Create custom skill |
 | compact, compress, save context, slim down | `/bee:compact` | Smart context-preserving compact |

@@ -198,10 +198,16 @@ assert(
   step3Content.includes('Spec Name') || step3Content.includes('spec name') || step3Content.toLowerCase().includes('slugify'),
   'Step 3 (Get Spec Name) is unchanged'
 );
-const step35Content = contentBetweenSections('### Step 3.5', content);
+// Step 3.5 (Archive Previous Spec Memory) was removed in multispec-foundation:
+// new-spec no longer archives the previous spec (multiple specs may be active).
+// Verify the old archive-memory invocation is gone and the multispec note is present.
 assert(
-  step35Content.includes('archive-memory') || step35Content.toLowerCase().includes('archive'),
-  'Step 3.5 (Archive Previous Spec Memory) is unchanged'
+  !content.includes('archive-memory.sh'),
+  'Step 3.5 archive-memory.sh removed (multispec: no longer archives previous spec)'
+);
+assert(
+  content.includes('Multiple specs may be active') || content.includes('Archiving happens only at'),
+  'Step 3.5 replaced with multispec note (no archive on new-spec)'
 );
 const step4Content = contentBetweenSections('### Step 4', content);
 assert(
@@ -243,16 +249,16 @@ assert(
 // ============================================================
 console.log('\nTest 11: Standard flow preserved in Step 6');
 assert(
-  step6Content.includes('Round 1') || step6Content.includes('#### Round 1'),
-  'Step 6 still has Round 1 section'
+  step6Content.includes('#### Phase 1'),
+  'Step 6 has Phase 1 (adaptive discovery)'
 );
 assert(
-  step6Content.includes('Round 2') || step6Content.includes('#### Round 2'),
-  'Step 6 still has Round 2 section'
+  step6Content.includes('#### Phase 2'),
+  'Step 6 has Phase 2 (adaptive discovery)'
 );
 assert(
-  step6Content.includes('Round 3') || step6Content.includes('#### Round 3'),
-  'Step 6 still has Round 3+ / Convergence section'
+  step6Content.includes('Convergence'),
+  'Step 6 has a Convergence phase'
 );
 
 // ============================================================

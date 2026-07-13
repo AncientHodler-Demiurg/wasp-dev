@@ -146,7 +146,9 @@ These rules are non-negotiable and apply to ALL commands and agents.
 
 **R6: When user selects an option, execute it.** No follow-up warnings, no extra confirmation (exception: commit has its own confirmation flow via bee:commit).
 
-**R7: user.md is the only persistent memory.** Injected to all agents at SubagentStart. Contains preferences, rules, work style. Only conductors write to it, never agents.
+**R7: memory has two layers.** `user.md` is the global persistent memory — injected into all agents at SubagentStart; preferences, rules, work style; only conductors write to it, never agents. Each spec may also carry `.bee/specs/<slug>/memory.md` — spec-scoped guidance injected into agents while that spec is the single active one (suppressed when 2+ specs are active). Both are conductor-curated; agents never write either.
+
+**Worktree promotion (multi-spec parallel execution):** any active spec can be promoted to its own git worktree with `/bee:spec promote <slug>`. The promoted spec gets an isolated branch (`bee/spec/<slug>`) so its execution never blocks or conflicts with work on another spec in the main tree. Open a separate chat in the worktree path and run `/bee:execute-phase` there; the execute-time guard automatically offers promotion when a second spec attempts to execute in the same tree as an already-executing spec (no hard stop — it offers promote, queue, or pause). Merge the worktree back with `/bee:workspace complete spec-<slug>` when done.
 
 **R8: No completion claims without evidence.** When claiming work is done, paste actual tool output (test results, lint output, command results). "X tests passing" without showing the test runner output is not evidence — it is a claim.
 
@@ -159,7 +161,7 @@ When spawning agents via the Task tool, the conductor (parent command) chooses t
 
 ### User Preferences
 
-`.bee/user.md` is the only persistent memory file. It contains user preferences, work style rules, and recurring decisions. It is injected to all agents via the SubagentStart hook. Only conductor commands write to it — agents never modify it directly.
+`.bee/user.md` is the global persistent memory file. It contains user preferences, work style rules, and recurring decisions. It is injected to all agents via the SubagentStart hook. Only conductor commands write to it — agents never modify it directly. Per-spec memory lives in `.bee/specs/<slug>/memory.md` and is injected alongside `user.md` only when exactly one spec is active; with two or more active specs it is suppressed (there is no per-chat binding). Manage both via `/bee:memory`.
 
 ### Context isolation for agents
 

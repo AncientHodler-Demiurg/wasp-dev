@@ -12,7 +12,7 @@ Read these files using the Read tool:
 
 ## Spec Context (load before proceeding)
 
-Use Glob to find `.bee/specs/*/spec.md`, `.bee/specs/*/requirements.md`, `.bee/specs/*/phases.md`, and `.bee/specs/*/ROADMAP.md`, then Read each:
+After **Step 0 (Resolve target spec)** has set the Current Spec, load artifacts for THAT spec ONLY — never a wildcard across all specs. Read `{Current Spec Path}/spec.md`, `{Current Spec Path}/requirements.md`, `{Current Spec Path}/phases.md`, and `{Current Spec Path}/ROADMAP.md` (the Current Spec Path comes from STATE.md after Step 0's touch). Do NOT glob `.bee/specs/*/` — with multiple active specs that would mix artifacts from different specs into the work plan and the final compliance review.
 - If no spec.md found: NO_SPEC
 - If no requirements.md found: NO_REQUIREMENTS
 - If no phases.md found: NO_PHASES
@@ -20,6 +20,12 @@ Use Glob to find `.bee/specs/*/spec.md`, `.bee/specs/*/requirements.md`, `.bee/s
 ## Instructions
 
 You are running `/bee:ship` -- the autonomous orchestrator that executes all plan-reviewed phases, reviews each phase's implementation, logs every decision, runs a final implementation review, and presents results at completion. This command is fully autonomous during its pipeline (no AskUserQuestion during execution/review). Follow these steps in order.
+
+### Step 0: Resolve target spec
+
+Before any phase work, bind this ship run to a single spec:
+
+See `skills/command-primitives/SKILL.md` Spec Resolver (action: `ship`). Ship is unattended after Step 1 — if the resolver shows a pick menu, that menu is the ONE allowed interaction; the pipeline after Step 1 stays fully autonomous.
 
 ### Step 1: Validation Guards
 
@@ -294,54 +300,27 @@ For each wave starting from the resume point, repeat the following:
 
 **Build context packets for pending tasks in this wave:**
 
-For each pending `[ ]` or `[FAILED]` task in the current wave, assemble a context packet. The packet is the sole input the implementer agent receives -- it must be self-contained.
+The wave-execution core lives in `skills/wave-execution/SKILL.md` — load it now if not already loaded. Manifest: `$TASKS_PATH` = this phase's TASKS.md; `$PACKET_EXTRAS` = `stack-by-instruction` + `failed-context` (no learnings injection in ship); `$IMPLEMENTATION_MODE` from Step 1.
 
-Include in each context packet:
-- **Task identity:** Task ID (e.g., T1.3) and full description line from TASKS.md
-- **Acceptance criteria:** The task's `acceptance:` field verbatim
-- **Research notes:** The task's `research:` field
-- **Context file paths:** The task's `context:` field -- list of file paths for the agent to read at runtime
-- **Dependency notes (Wave 2+ only):** Read the task's `needs:` field to find dependency task IDs. Look up each dependency task in TASKS.md and include its `notes:` section content.
-- **For [FAILED] tasks:** Include the previous failure reason from the task's `notes:` section: "Previous attempt failed. Reason: {failure_reason}. Address this issue before proceeding."
-- **Stack skill instruction:** Resolve the correct stack(s) for each task using the following logic:
-
-  1. **Read config:** Check `.bee/config.json`. If `config.stacks` exists, use it. If `config.stacks` is absent (v2 config), treat `config.stack` as a single-entry stacks array: `[{ "name": config.stack, "path": "." }]`.
-
-  2. **Single-stack fast path:** If the stacks array has exactly one entry, skip path-overlap logic entirely. Use the original instruction: "Read `.bee/config.json` to find your stack, then read the matching stack skill at `skills/stacks/{stack}/SKILL.md` for framework conventions."
-
-  3. **Multi-stack path overlap:** When the stacks array has more than one entry, compare each stack's `path` value against the file paths listed in the task's `context:` and `research:` fields. A file matches a stack if the file path starts with (or is within) the stack's `path` value. A stack with `path` set to `"."` matches everything. Collect all stacks that have at least one matching file.
-
-  4. **Build the instruction:**
-     - If one or more stacks matched by path overlap, include: "Read `.bee/config.json` for the stacks array. Read the stack skill at `skills/stacks/{stack}/SKILL.md` for each of these stacks: [{matched_stack1}, {matched_stack2}]."
-     - If NO files from the task overlap any specific stack path (or the task has no `context:` / `research:` files), include all stacks as a fallback.
-- **TDD instruction:** "Follow TDD cycle: RED (write failing tests first), GREEN (minimal implementation to pass), REFACTOR (clean up with tests as safety net). Write structured Task Notes in your final message under a `## Task Notes` heading."
+1. See `skills/wave-execution/SKILL.md` Context Packet Assembly. (Includes the `[FAILED]`-task previous-failure context per the `failed-context` extra.)
+2. See `skills/wave-execution/SKILL.md` Stack Resolution (Path Overlap). Delivery mode: `stack-by-instruction` — agents are instructed to read the matched stacks' skill files themselves.
 
 See `skills/command-primitives/SKILL.md` Model Selection (Reasoning).
-Inputs: `$IMPLEMENTATION_MODE`. Apply to every implementer/reviewer/validator below.
+Inputs: `$IMPLEMENTATION_MODE`. Apply to every implementer/reviewer/validator below. Under `max-critical`, implementer spawns read each task's `criticality:` stamp from TASKS.md (high → `model: $CRITICAL_MODEL`, normal/unstamped → inherit), and the CRITICAL REVIEW SPOTS — the per-phase review convergence loop, any deep re-review, and the Step 4 final implementation review — also use `$CRITICAL_MODEL` (reviews are where the model gap shows most). Under `max`, everything below uses `$CRITICAL_MODEL`. Spawn-failure fallback + one-time notice per the rule.
 
 **Live progress -- TaskCreate:** After assembling context packets, call TaskCreate for each pending task in the wave. Use the task ID as the title and the full task description line as the body.
 
 **Spawn parallel implementer agents:**
 
-**Agent resolution:** See `skills/command-primitives/SKILL.md` Per-Stack Agent Resolution. Role to resolve: implementer.
-
-**Live progress -- TaskUpdate in-progress:** Before spawning agents, call TaskUpdate to set ALL pending tasks in the wave to in-progress status.
-
-Spawn ALL pending tasks in the current wave simultaneously using the Task tool. Each task becomes one parallel agent invocation.
-
-CRITICAL: Spawn all agents in the wave at the same time using simultaneous Task tool calls. Do NOT wait for one agent to finish before spawning the next.
+See `skills/wave-execution/SKILL.md` Spawn (Parallel Implementers).
+(Agent resolution with stack-specific fallback, TaskCreate/TaskUpdate live progress, simultaneous spawning with the per-task resolved model.)
 
 **Collect results and handle outcomes per agent:**
 
 As each implementer agent completes, process its result:
 
 **On success (agent completed with task notes):**
-1. Read current TASKS.md from disk (fresh Read -- Read-Modify-Write pattern)
-2. Extract the task notes from the agent's final response (the `## Task Notes` section)
-3. Change the task's checkbox to `[x]` in TASKS.md (match either `[ ]` for pending tasks or `[FAILED]` for retried tasks)
-4. Write the extracted task notes into the task's `notes:` section in TASKS.md
-5. Write updated TASKS.md to disk
-6. Call TaskUpdate to mark the task as completed
+See `skills/wave-execution/SKILL.md` Success Handling (TASKS.md Choreography).
 
 **On failure (agent did not complete successfully):**
 1. Note the failure reason from the agent's output.
@@ -437,14 +416,8 @@ Cache step here; the dependency-scan portion runs in Step 3b.4 with TASKS.md mod
 
 **3b.3: Extract False Positives**
 
-1. Read `.bee/false-positives.md` using the Read tool.
-2. If the file exists, build a formatted false-positives list:
-   ```
-   EXCLUDE these documented false positives from your findings:
-   - FP-001: {summary} ({file}, {reason})
-   ...
-   ```
-3. If the file does not exist, set the false-positives list to: `"No documented false positives."`
+See `skills/review-pipeline/SKILL.md` False-Positive Extraction (Dual-Mode).
+Output: `$FP_LIST` — included verbatim in each agent's context packet in Step 3b.6.
 
 **3b.4: Dependency Scan**
 
@@ -494,100 +467,25 @@ Then jump to **Step 3c (Update STATE.md as REVIEWED)** — skip Steps 3b.6 throu
 
 **3b.6: Spawn 4-Agent Review Pipeline**
 
-Build context packets for four review agents using the same multi-stack logic as review.md Step 4:
+**Review pipeline manifest** (the parameters for EVERY `review-pipeline` section referenced in Steps 3b.6-3b.9; the engine lives in `skills/review-pipeline/SKILL.md` — load it now if not already loaded):
 
-See `skills/command-primitives/SKILL.md` Per-Stack Agent Resolution.
-Roles to resolve: bug-detector, pattern-reviewer, stack-reviewer.
+- `$SCOPE`: `phase`
+- `$SCOPE_CONTEXT`: spec.md path, TASKS.md path, phase_directory, phase number {N}. EVERY packet additionally includes the Context Cache content (stack skill, CONTEXT.md, user.md — from Step 3b.2) and the dependency-scan instruction line (from Step 3b.4).
+- `$OUTPUT_PATH`: `{phase_directory}/REVIEW.md`
+- `$FP_LIST`: from Step 3b.3
+- `$ROSTER_GLOBALS`: plan-compliance-reviewer (always, phase-scope packet); NO audit-bug-detector, NO architecture-auditor (ship's per-phase review keeps the original 4-agent roster; cross-phase tracing happens at Step 4)
+- `$BATCH_VALIDATORS`: none — ship owns its aggregate validation in Steps 3b.6.5 and 3b.8.5 ($VALIDATE_MODE-gated, HALT semantics)
+- `$EXPECTED_COUNT`: `(3 x stack_count) + 1`
+- `$VALIDATION_BATCH_SIZE`: 10
+- `$ESCALATION`: on
+- `$STYLISTIC_MODE`: auto-confirm (ship auto-fixes ALL finding categories — see the [Auto-fix] decision log below)
+- `$LOOP`: off — ship owns its re-review loop at Step 3b.10
 
-**Per-stack Agent: Bug Detector** (one per stack)
-```
-You are reviewing Phase {N} implementation for bugs and security issues.
+Execute with the manifest above:
 
-Spec: {spec.md path}
-TASKS.md: {TASKS.md path}
-Phase directory: {phase_directory}
-Phase number: {N}
-Stack: {stack.name}
-
-{Context Cache content: stack skill, CONTEXT.md, user.md}
-{false-positives list}
-
-Read TASKS.md to find the files created/modified by this phase. Scope your file search to files within the `{stack.path}` directory. Review those files for bugs, logic errors, null handling issues, race conditions, edge cases, and security vulnerabilities (OWASP). If a project-level CLAUDE.md exists at the project root, read it for project-specific overrides (CLAUDE.md takes precedence over stack skill for project-specific conventions).
-
-Apply the Review Quality Rules from the review skill: same-class completeness (scan ALL similar constructs when finding one bug), edge case enumeration (verify loop bounds, all checkbox states, null paths), and crash-path tracing (for each state write, trace what happens if the session crashes here).
-
-Report only HIGH confidence findings in your standard output format.
-
-{Dependency scan instruction}
-```
-
-**Per-stack Agent: Pattern Reviewer** (one per stack)
-```
-You are reviewing Phase {N} implementation for pattern deviations.
-
-Spec: {spec.md path}
-TASKS.md: {TASKS.md path}
-Phase directory: {phase_directory}
-Phase number: {N}
-Stack: {stack.name}
-
-{Context Cache content: stack skill, CONTEXT.md, user.md}
-{false-positives list}
-
-Read TASKS.md to find the files created/modified by this phase. Scope your file search to files within the `{stack.path}` directory. For each file, find 2-3 similar existing files in the codebase, extract their patterns, and compare. If a project-level CLAUDE.md exists at the project root, read it for project-specific overrides.
-
-Apply same-class completeness: when you find a pattern deviation in one location, scan ALL similar constructs across the codebase for the same deviation. Report ALL instances, not just the first.
-
-Report only HIGH confidence deviations in your standard output format.
-
-{Dependency scan instruction}
-```
-
-**Per-stack Agent: Stack Reviewer** (one per stack)
-```
-You are reviewing Phase {N} implementation for stack best practice violations.
-
-Spec: {spec.md path}
-TASKS.md: {TASKS.md path}
-Phase directory: {phase_directory}
-Phase number: {N}
-
-{Context Cache content: stack skill, CONTEXT.md, user.md}
-{false-positives list}
-
-The stack for this review pass is `{stack.name}`. Load the stack skill at `skills/stacks/{stack.name}/SKILL.md` and check all code within the `{stack.path}` directory against that stack's conventions. If a project-level CLAUDE.md exists at the project root, read it for project-specific overrides (CLAUDE.md takes precedence over stack skill). Use Context7 to verify framework best practices. Report only HIGH confidence violations in your standard output format.
-
-{Dependency scan instruction}
-```
-
-**Global Agent: Plan Compliance Reviewer** (spawned ONCE globally)
-
-Before building the packet, check if `{spec-path}/requirements.md` exists on disk. Set the requirements line:
-- If found: `Requirements: {spec-path}/requirements.md`
-- If not found: `Requirements: (not found -- skip requirement tracking)`
-
-```
-You are reviewing Phase {N} implementation in CODE REVIEW MODE (not plan review mode).
-
-Spec: {spec.md path}
-TASKS.md: {TASKS.md path}
-Requirements: {spec-path}/requirements.md OR (not found -- skip requirement tracking)
-Phase directory: {phase_directory}
-Phase number: {N}
-
-{Context Cache content: stack skill, CONTEXT.md, user.md}
-{false-positives list}
-
-Review mode: code review. Check implemented code against spec requirements and acceptance criteria. Verify every acceptance criterion in TASKS.md has corresponding implementation. Check for missing features, incorrect behavior, and over-scope additions. If phase > 1, also check cross-phase integration (imports, data contracts, workflow connections, shared state). If a project-level CLAUDE.md exists at the project root, read it for project-specific overrides. Report findings in your standard code review mode output format.
-```
-
-**Spawn agents:**
-
-For model tier per `$IMPLEMENTATION_MODE`, see `skills/command-primitives/SKILL.md` Model Selection (Reasoning).
-
-**Spawn ordering by mode:**
-- In economy mode: spawn agents sequentially per stack. Spawn the global plan-compliance-reviewer first and wait for completion. Then for each stack: spawn that stack's 3 per-stack agents in parallel and wait for completion before proceeding to the next stack.
-- In quality or premium mode: Spawn ALL agents via Task tool calls in a SINGLE message (parallel execution).
+1. See `skills/review-pipeline/SKILL.md` Stack Roster and Agent Resolution.
+2. See `skills/review-pipeline/SKILL.md` Context Packets.
+3. See `skills/review-pipeline/SKILL.md` Spawn (Ordering and Model).
 
 Wait for all agents to complete.
 
@@ -595,7 +493,7 @@ Wait for all agents to complete.
 
 If `$VALIDATE_MODE` is true:
 
-After all review agents complete (the per-stack Bug Detector / Pattern Reviewer / Stack Reviewer trio plus the global Plan Compliance Reviewer), collect per-agent outputs: `{agent: "bug-detector" | "pattern-reviewer" | "stack-reviewer" | "plan-compliance-reviewer", transcript_path: <path>, exit_code: 0}`. The `agent` field MUST be the un-prefixed canonical slug matching a `VALIDATOR_ROSTER` entry from `validators-lib.js` (strip any stack prefix like `laravel-inertia-vue-` before building agent_outputs — `runPerAgentValidator` resolves the validator path by literal filename concat, NOT by hooks.json's non-anchored regex routing). Build stdin payload `{cwd: $ROOT, agent_outputs: [...], expected_count: <N>}` where `N` equals the total review-agent spawn count for this phase (mode-dependent — economy spawns sequentially per stack; quality/premium spawns all at once). Invoke:
+After all review agents complete (the per-stack Bug Detector / Pattern Reviewer / Stack Reviewer trio plus the global Plan Compliance Reviewer), collect per-agent outputs: `{agent: "bug-detector" | "pattern-reviewer" | "stack-reviewer" | "plan-compliance-reviewer", transcript_path: <path>, exit_code: 0}`. The `agent` field MUST be the un-prefixed canonical slug matching a `VALIDATOR_ROSTER` entry from `validators-lib.js` (strip any stack prefix like `laravel-inertia-vue-` before building agent_outputs — `runPerAgentValidator` resolves the validator path by literal filename concat, NOT by hooks.json's non-anchored regex routing). Build stdin payload `{cwd: $ROOT, agent_outputs: [...], expected_count: <N>}` where `N` equals the total review-agent spawn count for this phase (mode-dependent — economy spawns sequentially per stack; all other modes, max tiers included, spawn all at once). Invoke:
 
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/batch/ship-per-phase-review.js
@@ -615,34 +513,16 @@ If `ok:true`, proceed to Step 3b.7.
 
 **3b.7: Parse, Deduplicate, Write REVIEW.md**
 
-After all agents complete, consolidate findings using the same logic as review.md Steps 4.3-4.5:
-
-1. **Parse findings** from each agent's final message:
-   - Bug Detector findings -> Category: "Bug" (or "Security" for security-related)
-   - Pattern Reviewer findings -> Category: "Pattern", Severity: Medium
-   - Plan Compliance Reviewer findings -> Category: "Spec Gap", severity from entry
-   - Stack Reviewer findings -> Category: "Standards", Severity: Medium
-
-2. **Deduplicate and merge:** For each pair of findings from different agents, check if they reference the same file AND their line ranges overlap (within 5 lines). If so, merge (keep higher severity, combine categories/descriptions, use broader line range).
-
-3. **Assign IDs and write REVIEW.md:** Write `{phase_directory}/REVIEW.md` using the review-report template. Set iteration to `{$REVIEW_ITERATION}`, status to PENDING.
-
+1. See `skills/review-pipeline/SKILL.md` Parse Findings.
+2. See `skills/review-pipeline/SKILL.md` Deduplicate and Merge (Rules 0–3).
+3. See `skills/review-pipeline/SKILL.md` Write Report. Set iteration to `{$REVIEW_ITERATION}`, status to PENDING.
 4. Count total findings. If 0 findings:
    - Display: "Review for Phase {N} clean -- no findings (iteration {$REVIEW_ITERATION})."
    - Proceed to Step 3c (update STATE.md as REVIEWED).
 
 **3b.8: Validate Findings**
 
-For each finding in REVIEW.md:
-1. Build validation context: finding ID, summary, severity, category, file path, line range, description, suggested fix, and `source_agent`.
-2. Spawn `finding-validator` agent via Task tool. Apply Model Selection (Reasoning) (referenced in Step 3a.4).
-3. Batch up to 10 validators at a time to avoid overwhelming the system.
-4. Collect classifications from each validator.
-
-**Escalate MEDIUM confidence classifications:**
-- For each MEDIUM confidence classification, spawn a fresh `finding-validator` agent for a second opinion (NOT the source specialist). Provide the original finding, the validator's uncertain classification, and request a second opinion.
-- Batch up to 10 validators at a time -- specialist escalations use the same parallel pattern as primary validation; each is a focused re-analysis.
-- Use the second opinion as the FINAL classification.
+See `skills/review-pipeline/SKILL.md` Validate Findings — items 1-3 (classification + escalation; manifest: batch size 10, escalation on, no engine batch validators — ship's own aggregate validation runs next at 3b.8.5). Collect the final classifications for every finding.
 
 **3b.8.5: Aggregate-validate finding-validator outputs**
 
@@ -666,10 +546,7 @@ Rationale: same as Step 3a.4.5 -- authoritative blocking per REQ-09; failure han
 
 If `ok:true`, proceed to FALSE POSITIVE handling below.
 
-**Handle FALSE POSITIVE findings:**
-- If `.bee/false-positives.md` does not exist, create it with a `# False Positives` header.
-- For each FALSE POSITIVE finding, append an entry to `.bee/false-positives.md`.
-- Update REVIEW.md: set the finding's Fix Status to "False Positive".
+**Handle DROPPED and FALSE POSITIVE findings:** per `skills/review-pipeline/SKILL.md` Validate Findings items 5-6 (DROPPED: tally + discard, never persisted; FALSE POSITIVE: append to `.bee/false-positives.md` in the canonical FP-NNN format with Phase: {N}). Update REVIEW.md Fix Status accordingly.
 
 **Handle STYLISTIC findings (autonomous -- no user interaction):**
 Ship auto-fixes ALL STYLISTIC findings. Add every STYLISTIC finding to the confirmed fix list. Log the decision:
@@ -683,25 +560,12 @@ Update REVIEW.md with all classifications.
 
 **3b.9: Fix Confirmed Issues**
 
-1. Sort confirmed findings by priority: Critical > High > Standards (Medium) > Dead Code (Medium) > Other Medium.
-2. If no confirmed findings: display "No confirmed findings to fix." Proceed to re-review check.
+See `skills/review-pipeline/SKILL.md` Fix Confirmed Issues (File-Based Parallelism).
 
-**Fixer Parallelization Strategy:**
-1. Group confirmed findings by file path.
-2. For findings on DIFFERENT files: spawn fixers in parallel (one fixer per file group).
-3. For findings on the SAME file: run fixers sequentially within the group.
-
-For each file group:
-- Build fixer context packet with finding details, validation classification, and stack info.
-- Spawn `fixer` agent via Task tool. Use the parent model (omit model parameter) -- fixers write production code.
-- For same-file findings: WAIT for each fixer before spawning the next.
-- Read the fixer's fix report and update REVIEW.md Fix Status.
-- If fixer reports "Reverted" or "Failed": log the decision:
-  - **[Skip-fix]:** Fix for F-{NNN} failed -- tests broke after fix. Changes reverted.
-  - **Why:** Fixer's changes caused test failures; reverting preserves working state.
-  - **Alternative rejected:** Keeping broken fix -- passing tests are more important than resolving one finding.
-
-Display fix summary: "{fixed} fixed, {skipped} skipped, {failed} failed out of {total} confirmed findings."
+If a fixer reports "Reverted" or "Failed", additionally log the autonomous decision:
+- **[Skip-fix]:** Fix for F-{NNN} failed -- tests broke after fix. Changes reverted.
+- **Why:** Fixer's changes caused test failures; reverting preserves working state.
+- **Alternative rejected:** Keeping broken fix -- passing tests are more important than resolving one finding.
 
 **3b.10: Re-Review Check**
 
@@ -810,102 +674,21 @@ Collect all executed phase directory paths (phases with status EXECUTED, REVIEWE
 
 **Full mode (`$FINAL_REVIEW_MODE == "full"`):** Build per-stack agent packets (Bug Detector, Pattern Reviewer, Stack Reviewer — 3 per stack) AND the 2 global agents below, for a total of `(3 x N) + 2` agents where `N` is the number of configured stacks. Use this mode when any of the full-mode triggers above apply.
 
-Build agent context packets following review-implementation.md Step 4.1:
+Build agent context packets via the engine — see `skills/review-pipeline/SKILL.md` Context Packets with this manifest:
 
-**Per-stack Agent: Bug Detector** (full spec mode context — only spawned when `$FINAL_REVIEW_MODE == "full"`)
-```
-You are reviewing the FULL PROJECT implementation for bugs and security issues. This is a project-scope review across all executed phases, not a single-phase review.
+- `$SCOPE`: `full-spec`
+- `$SCOPE_CONTEXT`: spec.md path + all executed phase directory paths. EVERY packet additionally includes the Context Cache content and the dependency-scan instruction.
+- `$OUTPUT_PATH`: `{spec-path}/REVIEW-IMPLEMENTATION.md`
+- `$FP_LIST`: re-extracted above
+- `$ROSTER_GLOBALS`: plan-compliance-reviewer (full-spec packet) + audit-bug-detector (always). Per-stack agents (bug-detector, pattern-reviewer, stack-reviewer) are built ONLY when `$FINAL_REVIEW_MODE == "full"`. No architecture-auditor at final review.
+- `$BATCH_VALIDATORS`: none
+- `$EXPECTED_COUNT`: 2 in lean mode; `(3 x stack_count) + 2` in full mode
+- `$VALIDATION_BATCH_SIZE`: 10
+- `$ESCALATION`: on
+- `$STYLISTIC_MODE`: auto-confirm
+- `$LOOP`: off (final review is a single pass)
 
-Spec: {spec.md path}
-Executed phases:
-- Phase {N}: {phase_directory_path}
-...
-Stack: {stack.name}
-
-{Context Cache content}
-{false-positives list}
-
-For EACH executed phase, read its TASKS.md to find the files created/modified. Scope your file search to files within the `{stack.path}` directory. Review those files for bugs, logic errors, null handling issues, race conditions, edge cases, and security vulnerabilities (OWASP). If a project-level CLAUDE.md exists at the project root, read it for project-specific overrides.
-
-Apply the Review Quality Rules from the review skill: same-class completeness (scan ALL similar constructs when finding one bug), edge case enumeration (verify loop bounds, all checkbox states, null paths), and crash-path tracing (for each state write, trace what happens if the session crashes here).
-
-Report only HIGH confidence findings in your standard output format.
-```
-
-**Per-stack Agent: Pattern Reviewer** (full spec mode context — only spawned when `$FINAL_REVIEW_MODE == "full"`)
-```
-You are reviewing the FULL PROJECT implementation for pattern deviations. This is a project-scope review across all executed phases, not a single-phase review.
-
-Spec: {spec.md path}
-Executed phases:
-- Phase {N}: {phase_directory_path}
-...
-Stack: {stack.name}
-
-{Context Cache content}
-{false-positives list}
-
-For EACH executed phase, read its TASKS.md to find the files created/modified. Scope your file search to files within the `{stack.path}` directory. For each file, find 2-3 similar existing files in the codebase, extract their patterns, and compare. If a project-level CLAUDE.md exists at the project root, read it for project-specific overrides.
-
-Apply same-class completeness: when you find a pattern deviation in one location, scan ALL similar constructs across the codebase for the same deviation. Report ALL instances, not just the first.
-
-Report only HIGH confidence deviations in your standard output format.
-```
-
-**Per-stack Agent: Stack Reviewer** (full spec mode context — only spawned when `$FINAL_REVIEW_MODE == "full"`)
-```
-You are reviewing the FULL PROJECT implementation for stack best practice violations. This is a project-scope review across all executed phases, not a single-phase review.
-
-Spec: {spec.md path}
-Executed phases:
-- Phase {N}: {phase_directory_path}
-...
-
-{Context Cache content}
-{false-positives list}
-
-The stack for this review pass is `{stack.name}`. For EACH executed phase, read its TASKS.md to find the files created/modified. Load the stack skill at `skills/stacks/{stack.name}/SKILL.md` and check all code within the `{stack.path}` directory against that stack's conventions. If a project-level CLAUDE.md exists at the project root, read it for project-specific overrides. Use Context7 to verify framework best practices. Report only HIGH confidence violations in your standard output format.
-```
-
-**Global Agent: Plan Compliance Reviewer** (full spec mode context)
-```
-You are reviewing the FULL PROJECT implementation in CODE REVIEW MODE (not plan review mode). This is a project-scope review across ALL executed phases.
-
-Spec: {spec.md path}
-Requirements: {spec-path}/requirements.md OR (not found -- skip requirement tracking)
-Executed phases:
-- Phase {N}: {phase_directory_path}
-...
-
-{Context Cache content}
-{false-positives list}
-
-Review mode: code review. Check implemented code against spec requirements and acceptance criteria across ALL executed phases. For EACH phase, read its TASKS.md and verify every acceptance criterion has corresponding implementation. Check for missing features, incorrect behavior, and over-scope additions. CRITICAL: Check cross-phase integration across ALL executed phases (not just adjacent phases) -- verify imports, data contracts, workflow connections, and shared state consistency between every pair of phases. If a project-level CLAUDE.md exists at the project root, read it for project-specific overrides. Report findings in your standard code review mode output format.
-```
-
-**Global Agent: Audit Bug Detector** (`bee:audit-bug-detector`) -- full spec mode only, spawned ONCE globally
-```
-You are tracing end-to-end feature flows across ALL executed phases to find bugs that category-specific reviewers miss.
-
-Spec: {spec.md path}
-Executed phases:
-- Phase {N}: {phase_directory_path}
-...
-
-{Context Cache content}
-{false-positives list}
-
-Trace complete user flows from entry point to completion. For each flow:
-1. Follow data from frontend to backend to database and back
-2. Check that types, field names, and contracts match at every boundary
-3. Verify error handling exists at every async boundary
-4. Check that state transitions are complete (no missing status values)
-5. Verify resume/crash recovery paths work end-to-end
-
-Report bugs that span multiple files or phases -- the kind that single-file reviewers miss. Report only HIGH confidence findings in your standard output format.
-```
-
-**Spawn agents:** Spawn agents using the same economy/quality/premium mode logic as Step 3b.6. The agent set depends on `$FINAL_REVIEW_MODE`:
+**Spawn agents:** Spawn agents using the same Model Selection (Reasoning) mode logic as Step 3b.6 (all modes — under max-critical this final review is a critical review spot and uses `$CRITICAL_MODEL`). The agent set depends on `$FINAL_REVIEW_MODE`:
 - **Lean mode (default):** spawn ONLY `plan-compliance-reviewer` + `audit-bug-detector`. Total agents in lean mode: 2.
 - **Full mode:** spawn per-stack agents (Bug Detector + Pattern Reviewer + Stack Reviewer per stack) + the 2 global agents. Total agents in full mode: (3 x N) + 2 where N is number of stacks.
 
@@ -913,7 +696,7 @@ Wait for all agents to complete.
 
 **4c. Process Final Review Results**
 
-1. Parse, deduplicate, and write `{spec-path}/REVIEW-IMPLEMENTATION.md` using the same consolidation logic as Step 3b.7.
+1. Parse, deduplicate, and write `{spec-path}/REVIEW-IMPLEMENTATION.md` via the engine (Parse Findings → Deduplicate and Merge (Rules 0–3) → Write Report), same as Step 3b.7.
 2. If 0 findings: display "Final implementation review: clean -- no findings across all phases."
 3. If findings exist:
    - Validate findings using the same pipeline as Step 3b.8 (finding-validators, escalation).
@@ -936,6 +719,15 @@ Wait for all agents to complete.
 ### Step 5: Completion Summary
 
 **Auto-mode marker cleanup (always, regardless of outcome):** delete `.bee/.autonomous-run-active`, `.bee/.autonomous-team-spawned`, and `.bee/.autonomous-team-claimed` if any exists. These markers are per-run, not persisted across runs. If the command exits early on error before reaching this step, the next `/bee:health` Check 14 will surface and recommend manual cleanup.
+
+**Advance spec stage to `reviewing` and snapshot reviewed state:**
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js set-stage --bee .bee --slug <slug> --stage reviewing
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js touch --bee .bee --slug <slug>
+```
+
+If `set-stage` prints `unknown spec` (legacy spec not in registry), that is fine — continue. The `touch` call captures the live global STATE.md (which already reflects all per-phase REVIEWED updates from Step 3c) into the per-spec snapshot, so the reviewed state is durably persisted. If `set-stage` printed `unknown spec`, skip the `touch` as well (legacy path has no per-spec snapshot). The spec is built and reviewed; run `/bee:complete-spec` to finish the ceremony (which terminalizes it in the registry).
 
 Read the final state from disk. Build and display the completion summary.
 
@@ -976,6 +768,22 @@ If no decisions were logged: "No autonomous decisions were needed -- clean run."
 If `$FINAL_REVIEW_ENABLED` was true:
 - Display the final review finding count and fix summary.
 - If there are unresolved findings from the final review, list them.
+
+**5d. Other Active Specs (FIX 5 batch14)**
+
+After displaying the completion summary and before presenting the exit menu, check for other still-active specs:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js list --bee .bee --active
+```
+
+Parse the output. If any specs are listed other than the just-shipped spec (its stage was advanced to `reviewing` in Step 5a and will be terminalised by `/bee:complete-spec`), display a single line:
+
+```
+Other active spec(s): {slug1}, {slug2} — `/bee:spec use <slug>` to continue.
+```
+
+If no other active specs exist, skip this line silently.
 
 **5d. Exit Menu**
 

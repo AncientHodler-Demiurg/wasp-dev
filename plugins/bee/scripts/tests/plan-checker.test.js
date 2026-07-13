@@ -927,6 +927,100 @@ console.log('\n=== sourceLine propagation ===');
   assert(!/TASKS\.md:1\b/.test(report), 'sourceLine: formatReport does NOT render misleading TASKS.md:1 fallback');
 }
 
+// ===== Real bee-schema phase TASKS.md (section-header waves + inline needs) =====
+//
+// Bee's canonical TASKS.md (skills/core/templates/tasks.md) encodes waves as
+// `### Wave N` SECTION HEADERS — not per-task `- wave:` sub-fields — and puts
+// dependencies as an inline `| needs: T1.1` on the task header line. It has NO
+// `files_touched:` field at all (file ownership lives in the prose Wave Plan).
+// A checker that only reads `- wave:`/`- files_touched:` sub-fields false-flags
+// every real bee plan as "missing wave" + "missing files_touched". These tests
+// pin that the real schema parses cleanly and emits no schema-mismatch noise.
+
+console.log('\n=== Real bee-schema phase TASKS.md ===');
+
+const BEE_SCHEMA_TASKS_MD = `# Phase 1: Sample -- Tasks
+
+## Wave Plan
+
+| Wave | Tasks | Rationale |
+|------|-------|-----------|
+| 1 | T1.1 | No deps. |
+| 2 | T1.2 | Needs T1.1. |
+
+## Tasks
+
+### Wave 1
+
+- [ ] T1.1 | Do the first thing | bee-implementer
+  - requirements: [REQ-01]
+  - acceptance:
+    - First acceptance bullet
+  - notes:
+
+### Wave 2
+
+- [ ] T1.2 | Do the second thing | bee-implementer | needs: T1.1
+  - requirements: [REQ-02]
+  - acceptance:
+    - Second acceptance bullet
+  - notes:
+`;
+
+{
+  const { tasks } = checker.parseTasks(BEE_SCHEMA_TASKS_MD);
+  assert(tasks.length === 2, 'bee-schema: parses 2 tasks');
+  assert(tasks[0].wave === 1, 'bee-schema: T1.1 wave inherited from `### Wave 1` section header');
+  assert(tasks[1].wave === 2, 'bee-schema: T1.2 wave inherited from `### Wave 2` section header');
+  assert(
+    tasks[1].needs.length === 1 && tasks[1].needs[0] === 'T1.1',
+    'bee-schema: inline `| needs: T1.1` on the task header line is parsed into needs'
+  );
+}
+
+{
+  // check3a must NOT fire on the real schema — every task has a wave via its section header.
+  checker.resetFindingCounters();
+  const { tasks } = checker.parseTasks(BEE_SCHEMA_TASKS_MD);
+  const findings = checker.check3a_waveMissing(tasks);
+  assert(
+    findings.length === 0,
+    `bee-schema: check3a emits NO wave-missing false-positive when waves come from section headers (got ${findings.length})`
+  );
+}
+
+{
+  // check2 must resolve the inline-needs dependency to a real task (no dangling).
+  checker.resetFindingCounters();
+  const { tasks } = checker.parseTasks(BEE_SCHEMA_TASKS_MD);
+  const findings = checker.check2_needsReferences(tasks);
+  assert(findings.length === 0, 'bee-schema: inline needs resolves to a declared task (no dangling-needs false-positive)');
+}
+
+{
+  // End-to-end CLI on a real shipped phase TASKS.md: zero wave/files_touched schema false-positives.
+  const repoRoot = path.join(__dirname, '..', '..', '..', '..');
+  const realPhase = path.join(
+    repoRoot,
+    '.bee/specs/2026-06-09-architectural-conformance-review-intelligence/phases/01-placement-taxonomy-and-whole-repo-anchoring/TASKS.md'
+  );
+  if (fs.existsSync(realPhase)) {
+    const res = runChecker([realPhase]);
+    const out = (res.stdout || '') + (res.stderr || '');
+    assert(
+      !/wave-missing/.test(out),
+      `real phase TASKS.md: no wave-missing false-positive in report (output had it; status=${res.status})`
+    );
+    assert(
+      !/files-touched-missing/.test(out),
+      'real phase TASKS.md: no files-touched-missing false-positive in report'
+    );
+    assert(res.status === 0, `real phase TASKS.md: checker exits 0 clean (got ${res.status}; out=${out.slice(0, 400)})`);
+  } else {
+    assert(true, 'real phase TASKS.md not present, skipping');
+  }
+}
+
 // ===== Summary =====
 
 console.log(`\nResult: ${passed} passed, ${failed} failed`);

@@ -364,6 +364,29 @@ const BATCH_PER_INSERTION_AGENT_ROSTER = {
   'plan-all-cross-plan.js': ['plan-compliance-reviewer', 'bug-detector', 'audit-bug-detector'],
 };
 
+// ---------------------------------------------------------------------------
+// BATCH_PER_INSERTION_CONDITIONAL_MEMBERS — per-batch agents that are spawned
+// ONLY WHEN a runtime gate fires, NOT on every run. Kept SEPARATE from
+// BATCH_PER_INSERTION_AGENT_ROSTER (whose entries are the always-spawned
+// members) so the always-spawned roster lengths stay invariant: review-4-agent.js
+// stays 4 and review-implementation-4-agent.js stays 5. The conductor adds the
+// conditional member to its spawned set AND increments the stdin expected_count
+// by 1 ONLY when the gate fires; when it does not fire, the spawned set and
+// expected_count are byte-for-byte unchanged.
+//
+// architecture-auditor — spawned ONCE globally into the per-phase review run
+// (review.md and review-implementation.md full-spec) when the net-new-subsystem
+// trigger (`net-new subsystem: yes`, owned by pattern-reviewer.md) is detected
+// for the executed phase(s). It performs a structural CODE audit, so it is wired
+// only into post-implementation review — never plan-review (no code exists yet).
+// The slug resolves to <validators>/architecture-auditor.js (already in
+// VALIDATOR_ROSTER), so the batch dispatcher routes it with no script change.
+// ---------------------------------------------------------------------------
+const BATCH_PER_INSERTION_CONDITIONAL_MEMBERS = {
+  'review-4-agent.js': ['architecture-auditor'],
+  'review-implementation-4-agent.js': ['architecture-auditor'],
+};
+
 module.exports = {
   readBatchPayload,
   aggregateVerdict,
@@ -375,4 +398,5 @@ module.exports = {
   BATCH_VALIDATOR_ROSTER,
   BATCH_VALIDATOR_INSERTION_POINTS,
   BATCH_PER_INSERTION_AGENT_ROSTER,
+  BATCH_PER_INSERTION_CONDITIONAL_MEMBERS,
 };

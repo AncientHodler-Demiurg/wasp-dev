@@ -157,29 +157,24 @@ assert(
 );
 
 // ============================================================
-// Test 5.5: Step 5.5 Archive Agent Memory (4 assertions)
+// Test 5.5: archive-memory.sh is retired — Step 5.5 must NOT exist
 // ============================================================
-console.log('\nTest 5.5: Step 5.5 - Archive Agent Memory');
-const step55Content = contentBetweenSections('### Step 5.5', content);
+console.log('\nTest 5.5: Step 5.5 - Archive Agent Memory retired');
 assert(
-  content.includes('### Step 5.5'),
-  'Step 5.5 (Archive Agent Memory) exists'
+  !content.includes('### Step 5.5'),
+  'Step 5.5 (Archive Agent Memory) has been removed (retired)'
 );
 assert(
-  step55Content.includes('archive-memory.sh'),
-  'Step 5.5 invokes archive-memory.sh'
+  !content.includes('archive-memory.sh'),
+  'complete-spec.md no longer references archive-memory.sh (retired)'
 );
 assert(
-  step55Content.toLowerCase().includes('capture') ||
-  step55Content.toLowerCase().includes('display the captured') ||
-  step55Content.toLowerCase().includes('stdout'),
-  'Step 5.5 instructs to capture/display the script stdout (not fire-and-forget)'
+  !content.includes('Archive Agent Memory'),
+  'complete-spec.md no longer has "Archive Agent Memory" heading or text'
 );
 assert(
-  step55Content.toLowerCase().includes('surface') ||
-  step55Content.toLowerCase().includes('non-zero') ||
-  step55Content.toLowerCase().includes('error'),
-  'Step 5.5 tells the conductor to surface errors or handle non-zero exit codes'
+  content.includes('.bee/archive/'),
+  'complete-spec.md still archives the spec folder (carrying memory.md with it)'
 );
 
 // ============================================================
@@ -430,6 +425,27 @@ assert(
   step4Content.includes('[F-') ||
   step4Content.includes('[Q-'),
   'Step 4 references fix marker patterns ([F-NNN], [Q-N], etc.)'
+);
+
+// ============================================================
+// Test 17: Step 6.5 - terminalize spec in multi-spec registry
+// ============================================================
+console.log('\nTest 17: Step 6.5 - terminalize spec in multi-spec registry');
+assert(
+  content.includes('### Step 6.5'),
+  'Step 6.5 (Close the spec in the multi-spec registry) exists'
+);
+assert(
+  content.includes('specs-cli.js set-stage'),
+  'Step 6.5 invokes specs-cli.js set-stage'
+);
+assert(
+  content.includes('--stage shipped'),
+  'Step 6.5 uses --stage shipped for complete ceremony'
+);
+assert(
+  content.includes('unknown spec') || content.includes('legacy spec'),
+  'Step 6.5 handles legacy specs gracefully (unknown spec / legacy spec)'
 );
 
 // ============================================================

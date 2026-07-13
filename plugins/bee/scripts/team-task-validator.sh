@@ -17,6 +17,14 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 0
 fi
 
+# Agent Teams fast-exit: TaskCompleted/TeammateIdle are team-only events. In the
+# common solo workflow (teams not enabled in config), skip the transcript scan +
+# team lookup entirely.
+_BEE_CFG="${CLAUDE_PROJECT_DIR:-$PWD}/.bee/config.json"
+if [ -f "$_BEE_CFG" ]; then
+  [ "$(jq -r '.agent_teams.status // "unavailable"' "$_BEE_CFG" 2>/dev/null)" = "enabled" ] || exit 0
+fi
+
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty')
 
 # Step 1: detect if this is a bee-spawned team task

@@ -33,22 +33,44 @@ if ! is_bee_agent "$AGENT_TYPE"; then
 fi
 
 BEE_DIR="$CLAUDE_PROJECT_DIR/.bee"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Read user preferences
+CONTEXT=""
+
+# Global user preferences (.bee/user.md) — injected into every bee agent (unchanged).
 if [ -f "$BEE_DIR/user.md" ]; then
   USER_PREFS=$(cat "$BEE_DIR/user.md" 2>/dev/null)
   if [ -n "$USER_PREFS" ]; then
     CONTEXT="## User Preferences
 ${USER_PREFS}
-
 "
-    printf '%s' "$CONTEXT" | jq -Rs '{
-      hookSpecificOutput: {
-        hookEventName: "SubagentStart",
-        additionalContext: .
-      }
-    }'
   fi
+fi
+
+# Per-spec memory (.bee/specs/<slug>/memory.md) — injected ONLY when exactly one spec is active
+# (resolver mode=auto). Suppressed at 0 or 2+ active: no per-chat binding to choose from.
+# NOTE: this resolves via the registry OR a legacy STATE.md fallback (a single-spec repo with
+# no specs.json still injects its curated memory), so it cannot be cheaply skipped on specs.json
+# absence — the node call is the authority on whether there is anything to inject.
+SPEC_MEMORY=$(node "$SCRIPT_DIR/specs-cli.js" memory-context --bee "$BEE_DIR" 2>/dev/null)
+if [ -n "$SPEC_MEMORY" ]; then
+  if [ -n "$CONTEXT" ]; then
+    CONTEXT="${CONTEXT}
+${SPEC_MEMORY}
+"
+  else
+    CONTEXT="${SPEC_MEMORY}
+"
+  fi
+fi
+
+if [ -n "$CONTEXT" ]; then
+  printf '%s' "$CONTEXT" | jq -Rs '{
+    hookSpecificOutput: {
+      hookEventName: "SubagentStart",
+      additionalContext: .
+    }
+  }'
 fi
 
 exit 0

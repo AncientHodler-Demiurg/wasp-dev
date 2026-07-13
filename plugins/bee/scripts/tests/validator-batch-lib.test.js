@@ -189,6 +189,54 @@ console.log('\n=== BATCH_PER_INSERTION_AGENT_ROSTER (15 keys) ===');
 }
 
 // ---------------------------------------------------------------------------
+// BATCH_PER_INSERTION_CONDITIONAL_MEMBERS — sibling constant documenting the
+// per-batch agents that are spawned ONLY WHEN a gate fires (architecture-auditor
+// on the net-new-subsystem trigger). These are NOT members of the always-spawned
+// BATCH_PER_INSERTION_AGENT_ROSTER arrays (review-4-agent stays length 4,
+// review-implementation-4-agent stays length 5) — that invariant is asserted
+// above and MUST hold so failClosedOnMissing's conductor-supplied expected_count
+// stays correct when the gate does NOT fire. The conditional member lives ONLY
+// here; the conductor adds +1 to expected_count when it actually spawns the
+// gated auditor.
+// ---------------------------------------------------------------------------
+
+console.log('\n=== BATCH_PER_INSERTION_CONDITIONAL_MEMBERS (net-new-subsystem gate) ===');
+{
+  const cond = lib.BATCH_PER_INSERTION_CONDITIONAL_MEMBERS;
+  assert(cond && typeof cond === 'object', 'exports BATCH_PER_INSERTION_CONDITIONAL_MEMBERS as object');
+  // The conditional auditor is wired into BOTH review and review-implementation
+  // batch insertion points (post-implementation code review), and NOWHERE else
+  // (plan-review runs before code exists, so it carries no conditional member).
+  assert(
+    Array.isArray(cond['review-4-agent.js']) && cond['review-4-agent.js'].includes('architecture-auditor'),
+    'review-4-agent.js conditional members include architecture-auditor (net-new-subsystem gate adds it to review.md)'
+  );
+  assert(
+    Array.isArray(cond['review-implementation-4-agent.js']) && cond['review-implementation-4-agent.js'].includes('architecture-auditor'),
+    'review-implementation-4-agent.js conditional members include architecture-auditor (net-new-subsystem gate adds it to review-implementation.md full-spec)'
+  );
+  // The conditional member MUST NOT also live in the always-spawned roster
+  // arrays — otherwise expected_count derivation would double-count the gate.
+  assert(
+    !lib.BATCH_PER_INSERTION_AGENT_ROSTER['review-4-agent.js'].includes('architecture-auditor'),
+    'architecture-auditor is NOT in the always-spawned review-4-agent.js roster (conditional only — keeps length 4)'
+  );
+  assert(
+    !lib.BATCH_PER_INSERTION_AGENT_ROSTER['review-implementation-4-agent.js'].includes('architecture-auditor'),
+    'architecture-auditor is NOT in the always-spawned review-implementation-4-agent.js roster (conditional only — keeps length 5)'
+  );
+  // Resolvability: every conditional member name resolves to a VALIDATOR_ROSTER
+  // <slug>.js, identical to the always-spawned guard above. Without this the
+  // conductor could spawn the gated auditor and then ENOENT at the dispatcher
+  // when no architecture-auditor.js validator exists.
+  const { VALIDATOR_ROSTER } = require(path.join(VALIDATORS_DIR, 'validators-lib.js'));
+  const allConditionalKnown = Object.values(cond).every((agents) =>
+    Array.isArray(agents) && agents.every((a) => VALIDATOR_ROSTER.includes(`${a}.js`))
+  );
+  assert(allConditionalKnown, 'every conditional member resolves to a VALIDATOR_ROSTER entry (typo-guard against runtime ENOENT)');
+}
+
+// ---------------------------------------------------------------------------
 // aggregateVerdict — pass/fail aggregation across per-agent results.
 // Drives expected verdict from the input shape, not from constants. The reason
 // string is the only signal callers expose to the conductor, so failing-agent

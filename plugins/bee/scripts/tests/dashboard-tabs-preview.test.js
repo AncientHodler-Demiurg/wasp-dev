@@ -11,7 +11,7 @@
 // These tests read the relevant source files as text and assert the
 // expected shape via substring / regex matches. They MUST NOT run tsc,
 // vite, npm, or any build tooling. Mirror the idiom of
-// `dashboard-list-panels.test.js` and `dashboard-config-summary.test.js`.
+// `dashboard-list-panels.test.js`.
 //
 // Covers all 10 acceptance criteria from
 // `.bee/quick/015-preview-tabs-vs-code-style-for-hive-dashboard.md`.

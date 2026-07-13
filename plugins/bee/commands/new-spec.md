@@ -31,6 +31,9 @@ First, check if `$ARGUMENTS` contains `--from-discussion {path}`. If it does:
 
 Then, check the (potentially stripped) `$ARGUMENTS` for `--amend`. If it contains `--amend`, skip to **Step 10: Amend Flow**. Otherwise, continue with the standard new spec flow below.
 
+See `skills/command-primitives/SKILL.md` Conversation Context Capture.
+Inputs: live chat after the most recent state-loading command. Apply: FEATURE-SCOPE capture against the nascent spec scope (`$INITIAL_DESCRIPTION` plus what the discovery conversation surfaces) — capture once at feature level into the spec artifact's `## Conversation Context`, then slice per-task into each spawned subagent's `## Prior Discussion`. When `--from-discussion` is used, the source-boundary rule confines capture to live chat after Step 2.5's discussion-file load, so already-loaded `$DISCUSSION_NOTES` content is not re-captured from chat.
+
 ### Step 2.5: Load Discussion Notes
 
 When `$USE_DISCUSSION` is true, read the discussion notes file at `$DISCUSSION_PATH` using the Read tool. Store its content as `$DISCUSSION_NOTES`.
@@ -55,18 +58,8 @@ If no description is provided, ask the user:
 
 Wait for the user's response. Extract a short name for the spec folder and store the full description as `$INITIAL_DESCRIPTION`.
 
-### Step 3.5: Archive Previous Spec Memory
-
-If STATE.md shows an existing spec (Status is NOT `NO_SPEC`), archive the memory from the previous spec before starting fresh:
-
-1. Get the previous spec name from STATE.md (Current Spec Name field)
-2. Run: `bash ${CLAUDE_PLUGIN_ROOT}/scripts/archive-memory.sh "{previous-spec-name}"`
-3. Capture the script's stdout and display it to the user verbatim — the script emits one status line per outcome (e.g. `archived 3 file(s) to .bee/memory-archive/{previous-spec-name}/` or `no memory to archive (no shared entries found)`). This replaces the previous fire-and-forget silent invocation.
-4. If the script exits with a non-zero code, surface the stderr error message to the user before continuing so the failure is not silent.
-
-This archives agent memory to `.bee/memory-archive/{spec-name}/`, keeps only project-level shared entries (patterns, conventions, preferences), and clears agent-specific memory so agents start clean for the new spec.
-
-If there is no previous spec (Status is `NO_SPEC`), skip this step.
+This command does NOT close or archive any existing spec. Multiple specs may be active at
+once (a queue of un-executed specs is expected). Archiving happens only at `/bee:complete-spec`.
 
 ### Step 3.7: Surface Matching Seeds
 
@@ -107,6 +100,53 @@ Create the spec directory:
 
 1. Get today's date: `date +%Y-%m-%d`
 2. Slugify the name (lowercase, hyphens, no spaces or special characters): `echo "{name}" | tr '[:upper:] ' '[:lower:]-' | tr -cd 'a-z0-9-'`
+
+### Step 4.5: Collision Guard
+
+Before creating directories, check whether `{YYYY-MM-DD}-{slug}` already exists:
+
+1. **Directory check:** `test -d .bee/specs/{YYYY-MM-DD}-{slug}` — exit code 0 means a directory already exists.
+2. **Registry check:** Run `node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js list --bee .bee --json` and look for any entry whose slug equals `{YYYY-MM-DD}-{slug}`.
+
+If either check detects a collision, determine whether the colliding spec is in a TERMINAL stage (shipped or archived). Check the registry JSON from step 2 above: find the entry whose slug equals `{YYYY-MM-DD}-{slug}` and read its `stage` field. A spec is terminal if its stage is `shipped` or `archived`.
+
+**If the colliding slug is TERMINAL (shipped/archived):** STOP and present:
+
+```
+AskUserQuestion(
+  question: "A spec with slug '{YYYY-MM-DD}-{slug}' already exists but is already completed ({stage}). How would you like to proceed?",
+  options: [
+    "Create a new spec with a fresh dated slug (recommended — the old spec is complete)",
+    "Overwrite (discards the archived spec's history)"
+  ]
+)
+```
+
+- **Create a new spec with a fresh dated slug**: Ask the user for a new feature name (return to Step 3). Re-derive the slug and re-check for collision with the new name before continuing.
+- **Overwrite**: Display "Warning: overwriting a completed/archived spec." Then reset the existing spec (proceed as in the Overwrite branch below).
+
+**If the colliding slug is ACTIVE (not terminal):** STOP and present:
+
+```
+AskUserQuestion(
+  question: "A spec with slug '{YYYY-MM-DD}-{slug}' already exists. How would you like to proceed?",
+  options: [
+    "Amend the existing spec (re-run with --amend)",
+    "Choose a different name (restart naming)",
+    "Overwrite (discards the existing spec's committed progress)"
+  ]
+)
+```
+
+- **Amend the existing spec**: Tell the user "Run `/bee:new-spec --amend` to amend the existing spec." Stop the command.
+- **Choose a different name**: Ask the user for a new feature name (return to Step 3). Re-derive the slug and re-check for collision with the new name before continuing.
+- **Overwrite**: Display "Warning: overwriting existing spec and resetting all phase progress." Then reset the existing spec:
+   - Delete the per-spec STATE.md so `initSpecState` recreates it fresh (empty phases, SPEC_CREATED status): `rm -f .bee/specs/{YYYY-MM-DD}-{slug}/STATE.md`
+   - Re-register the spec, bypassing the no-regress guard so the stage resets to `shaping`: `node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js register --bee .bee --slug "{YYYY-MM-DD}-{slug}" --title "{name}" --stage shaping --force-stage`
+   Proceed to directory creation below.
+
+Only if no collision was detected (or the user chose Overwrite), continue:
+
 3. Create the directories:
    - `.bee/specs/{YYYY-MM-DD}-{slug}/`
    - `.bee/specs/{YYYY-MM-DD}-{slug}/visuals/`
@@ -114,6 +154,14 @@ Create the spec directory:
 Tell the user: "Spec folder created at `.bee/specs/{folder}/`. If you have mockups or screenshots, place them in `.bee/specs/{folder}/visuals/` now before we continue."
 
 Wait for the user to confirm they are ready to proceed (they may need time to add visuals).
+
+### Step: Register the spec in the multi-spec registry
+
+Run (this also creates the per-spec STATE.md and refreshes the global mirror):
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js register --bee .bee --slug "{YYYY-MM-DD}-{slug}" --title "{name}" --stage shaping
+```
 
 ### Step 5: Research Codebase
 
@@ -133,6 +181,9 @@ Task(
     SPEC RESEARCH MODE -- No TASKS.md, no phase context.
 
     Research the codebase to inform a new feature spec: {$INITIAL_DESCRIPTION}
+
+    ## Prior Discussion
+    {Feature-scope Conversation Context Capture buckets — Decisions / Constraints / Ruled-out — relevant to scoping research. Omit this block entirely when buckets are empty.}
 
     Project stack: {stack from config.json}
 
@@ -282,11 +333,13 @@ Use AskUserQuestion to ask about implementation mode. Store the user's choice as
 question: "How should this feature be implemented?"
 header: "Implementation Mode"
 options:
-  - "Premium mode (default) -- opus for everything (maximum quality)" → $IMPLEMENTATION_MODE = "premium"
-  - "Quality mode -- opus for implementation and review, sonnet for scanning" → $IMPLEMENTATION_MODE = "quality"
+  - "Premium mode (default) -- inherit the session model for everything (maximum quality)" → $IMPLEMENTATION_MODE = "premium"
+  - "Max-critical mode -- the critical model (config.models.critical, default fable) on criticality:high tasks and critical reviews; inherit elsewhere" → $IMPLEMENTATION_MODE = "max-critical"
+  - "Quality mode -- inherit for implementation and review, sonnet for scanning" → $IMPLEMENTATION_MODE = "quality"
   - "Economy mode -- sonnet for everything (faster, lower cost)" → $IMPLEMENTATION_MODE = "economy"
-  - "Custom"
 ```
+
+The automatic "Other" option covers custom input — including `max` (the critical model for ALL work, scanning included) for users who want fable everywhere. Map a typed "max" to `$IMPLEMENTATION_MODE = "max"`.
 
 #### Phase 6: Convergence
 
@@ -356,6 +409,13 @@ Write `requirements.md` to the spec folder using the Write tool. Populate it wit
   - Scope Boundaries: In scope vs. out of scope
   - Technical Considerations: Integration points, constraints, dependencies
 
+When the feature-scope Conversation Context Capture buckets are non-empty, append this section to `requirements.md` (the spec artifact is the persistent plan-file analogue here). Silent-skip when buckets are empty — write no header.
+
+```markdown
+## Conversation Context
+{Captured Decisions / Constraints / Ruled-out bullets from the live discovery chat, FEATURE-SCOPE. This is the source the per-task `## Prior Discussion` slices draw from.}
+```
+
 Display to user: "Requirements written to `{spec_folder}/requirements.md`"
 
 ### Step 9: Spawn spec-writer Agent
@@ -370,6 +430,7 @@ Spawn the `spec-writer` agent as a subagent with the model determined above. Pro
 
 - The spec folder path
 - Instruction: "Read requirements.md from the spec folder, then write spec.md and phases.md following the templates in skills/core/templates/"
+- A `## Prior Discussion` block sliced toward the spec sections the spec-writer consumes (the feature-scope Conversation Context Capture buckets — Decisions / Constraints / Ruled-out). Omit this block entirely when buckets are empty.
 
 The spec-writer agent will:
 1. Read `requirements.md` and any visuals
@@ -517,9 +578,33 @@ After generating ROADMAP.md, proceed to **Step 11: Update STATE.md**. (Note: If 
 
 This step runs only when `$ARGUMENTS` contains `--amend`.
 
-1. Read `.bee/STATE.md` and find the current spec path from the "Current Spec" section.
-2. If the Status is `NO_SPEC` or no current spec path exists, tell the user: "No active spec found. Run `/bee:new-spec` first to create one." Stop here.
+**Resolve the target spec explicitly (F26 fix — do NOT assume the last-touched spec):**
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js resolve --bee .bee
+```
+
+Interpret the JSON:
+- `{"mode":"create"}` → no active spec. Tell the user: "No active spec found. Run `/bee:new-spec` first to create one." Stop here.
+- `{"mode":"auto","slug":"X"}` → silently target spec `X`.
+- `{"mode":"pick","candidates":[…]}` → ask via AskUserQuestion which spec to amend, listing candidates (last-touched first) with `Custom` last. If the JSON includes a `more` field, include "+{more} more active spec(s) — run `/bee:spec list` to see all." as informational text in the question body (NOT as a selectable option). Use the chosen slug.
+
+Once the slug is resolved, run `node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js touch --bee .bee --slug <slug>` to sync the global STATE.md to the chosen spec before proceeding. Check the exit code — if non-zero (snapshot missing), ABORT with: "Could not switch to spec <slug> (snapshot missing); aborting amend. Run `/bee:spec list`."
+
+1. Read `.bee/STATE.md` and find the current spec path from the "Current Spec" section (now guaranteed to reflect the resolved slug).
+2. If no current spec path exists after touch, tell the user: "No active spec found. Run `/bee:new-spec` first to create one." Stop here.
 3. Read the existing `requirements.md`, `spec.md`, and `phases.md` from the current spec folder.
+
+**Capture existing phase execution status before amending (F7 fix — preserve committed progress):**
+
+Read the Phases table from STATE.md. For each phase row, record:
+- Phase number, phase name
+- Executed column value (non-empty = executed)
+- Reviewed column value
+- Tested column value
+- Committed column value (non-empty = committed/done)
+
+Store this as `$PRE_AMEND_PHASE_STATUS`. This is the ground truth of what has already been done and MUST NOT be erased by the amend.
 
 **Spawn spec-shaper in amend mode:**
 Provide the spec-shaper agent with (omit model parameter -- amend mode needs full reasoning for nuanced changes):
@@ -530,9 +615,29 @@ Provide the spec-shaper agent with (omit model parameter -- amend mode needs ful
 Relay the amendment discussion between the agent and the user.
 
 **Spawn spec-writer in amend mode:**
-After the spec-shaper finishes updating `requirements.md`, read `config.implementation_mode` from config.json (defaults to `"premium"` if absent). In premium mode, omit the model parameter; in economy or quality mode, pass `model: "sonnet"`. Spawn the spec-writer agent with the resolved model. Provide the spec-writer agent with:
+After the spec-shaper finishes updating `requirements.md`, check whether the spec name or title changed during the amendment discussion. If it did, update the registry title by running:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js register --bee .bee --slug <slug> --title "<new name>"
+```
+
+(The register command upserts the title without regressing the stage. This ensures the multi-spec picker shows the updated name.)
+
+Then, read `config.implementation_mode` from config.json (defaults to `"premium"` if absent). In premium mode, omit the model parameter; in economy or quality mode, pass `model: "sonnet"`. Spawn the spec-writer agent with the resolved model. Provide the spec-writer agent with:
 - The spec folder path
 - Instruction: "This is an amended spec. Read the updated requirements.md. Rewrite only sections affected by the changes in spec.md and phases.md. Preserve unchanged content exactly."
+
+**After spec-writer finishes: preserve committed phase status in STATE.md (F7 fix):**
+
+Before proceeding to Step 9.5, apply the execution-status preservation rule:
+
+1. For each phase in `$PRE_AMEND_PHASE_STATUS` that has Executed or Committed columns populated:
+   a. Check whether the same phase (by number and substantially same name) still exists in the regenerated `phases.md`.
+   b. If the phase still exists: KEEP the Executed/Reviewed/Tested/Committed values from `$PRE_AMEND_PHASE_STATUS` — do NOT reset them to PENDING/empty.
+   c. If the phase has been structurally removed or its scope changed significantly: STOP and warn via AskUserQuestion before discarding its committed status:
+      "Amending will discard committed progress on Phase {N} ({name}). This progress is not recoverable from git (.bee/ is gitignored). Confirm to proceed?"
+      Options: ["Cancel (recommended)", "Proceed and discard committed progress", "Custom"]. Only proceed on explicit "Proceed" confirmation.
+2. Only NEW phases introduced by the amend start at PENDING with empty execution columns.
 
 After the spec-writer finishes, proceed to **Step 9.5: Spec Review Loop** to validate the amended spec. Then proceed to **Step 9.8: Generate ROADMAP.md** to regenerate the roadmap with any changed requirements or phases. Then proceed to **Step 11: Update STATE.md**.
 
@@ -542,10 +647,17 @@ After all steps complete successfully (in either the new or amend flow), re-read
 
 1. Set **Current Spec Name** to the spec name (e.g., `user-management`)
 2. Set **Current Spec Path** to the spec folder path (e.g., `.bee/specs/2026-02-20-user-management/`)
-3. Set **Current Spec Status** to `SPEC_CREATED`
+3. Set **Current Spec Status**:
+   - For **new spec flow**: always `SPEC_CREATED`.
+   - For **amend flow** (FIX 3): derive the status from the phase state that will be written. If any preserved phase (from `$PRE_AMEND_PHASE_STATUS`) has its Executed or Committed column populated, set Status to `IN_PROGRESS`. If all phases are new (PENDING with no prior execution), set Status to `SPEC_CREATED`. Never regress Status from what the preserved phases imply — an amend that retains COMMITTED phases must not reset Status to SPEC_CREATED.
 4. Read the newly created (or updated) `phases.md` from the spec folder
-5. Populate the **Phases** table with one row per phase, all with Status `PENDING` and all other columns (Plan, Plan Review, Executed, Reviewed, Tested, Committed) empty
-6. Set **Last Action** to:
+5. Populate the **Phases** table:
+   - For **new spec flow**: one row per phase, all with Status `PENDING` and all other columns (Plan, Plan Review, Executed, Reviewed, Tested, Committed) empty.
+   - For **amend flow**: for each phase, check `$PRE_AMEND_PHASE_STATUS`. If that phase has preserved Executed/Committed column values (from the preservation step in Step 10), write those values back rather than resetting to PENDING. Only new phases that did not previously exist start at PENDING.
+6. After writing the Phases table, sync the registry stage to match the Status written in step 3 (FIX 3 + FIX 5 batch16):
+   - If Status is `IN_PROGRESS` and the current registry stage is `shaping`, `discussing`, or `planning`, advance it to `executing` via: `node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js set-stage --bee .bee --slug <slug> --stage executing`
+   - If Status is `SPEC_CREATED` (all phase progress discarded in an amend that reset everything), regress the registry stage back to `shaping` using `--force` to bypass the no-regress guard: `node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js set-stage --bee .bee --slug <slug> --stage shaping --force`. This ensures the registry matches the reset STATE.md rather than leaving the registry at `executing` or `planning` while the spec is effectively brand-new.
+7. Set **Last Action** to:
    - Command: `/bee:new-spec` (or `/bee:new-spec --amend` if amending)
    - Timestamp: current ISO 8601 timestamp
    - Result: "Spec created" (or "Spec amended") with the spec name
@@ -582,6 +694,10 @@ Changes: {brief summary of what changed}
 Phases: {N} phases (updated if affected)
 ROADMAP.md: regenerated
 ```
+
+If more than one active (non-terminal) spec now exists in the registry (check the registry JSON loaded at Step 4.5 collision-guard — any entry whose stage is not `shipped` or `archived`, excluding the spec just created), append this informational line to the message above (before the AskUserQuestion):
+
+"Your other active spec(s) ({slugs of other active specs}) are untouched — this is a separate spec in the queue. Run `/bee:spec list` to see all, or `/bee:spec promote <slug>` to build two in parallel."
 
 Then use AskUserQuestion for the next step:
 

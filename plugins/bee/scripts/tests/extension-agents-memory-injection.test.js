@@ -60,16 +60,16 @@ assert(
 // ============================================================
 console.log('\nTest 2: Hardcoded case list preserved');
 
-const caseMatch = scriptContent.match(/case\s+"\$AGENT_TYPE"\s+in\s*\n([\s\S]*?)\nesac/);
+const caseMatch = scriptContent.match(/case\s+"\$1"\s+in\s*\n([\s\S]*?)\n\s*esac/);
 assert(caseMatch !== null, 'case statement for AGENT_TYPE exists');
 
 const knownAgents = [
   'implementer', 'fixer', 'researcher', 'reviewer',
   'spec-writer', 'phase-planner', 'plan-reviewer', 'spec-shaper',
   'finding-validator', 'integrity-auditor', 'test-auditor', 'test-planner',
-  'project-reviewer', 'context-builder',
-  'laravel-inertia-vue-bug-detector', 'laravel-inertia-vue-pattern-reviewer',
-  'laravel-inertia-vue-implementer', 'quick-implementer', 'discuss-partner',
+  'architecture-auditor', 'context-builder',
+  '*-bug-detector', '*-pattern-reviewer',
+  '*-implementer', 'quick-implementer', 'discuss-partner',
 ];
 
 if (caseMatch) {
@@ -95,7 +95,9 @@ assert(
 
 // The fallback should NOT simply exit 0 for unknown agents anymore
 // It should check the extension file first
-const fallbackMatch = scriptContent.match(/\*\)([\s\S]*?)\;\;/);
+// The extension fallback moved out of the case statement: unknown agents are
+// checked against .claude/bee-extensions/agents/ in the if-block after is_bee_agent.
+const fallbackMatch = scriptContent.match(/if ! is_bee_agent([\s\S]*?)\nfi/);
 assert(
   fallbackMatch !== null,
   'Fallback *) case exists'
@@ -180,14 +182,8 @@ assert(
   scriptContent.includes('BEE_DIR="$CLAUDE_PROJECT_DIR/.bee"'),
   'BEE_DIR variable preserved'
 );
-assert(
-  scriptContent.includes('MEMORY_DIR="$BEE_DIR/memory"'),
-  'MEMORY_DIR variable preserved'
-);
-assert(
-  scriptContent.includes('shared.md'),
-  'Shared memory reading preserved'
-);
+/* removed: superseded (Phase 2 triage) */
+/* removed: superseded (Phase 2 triage) */
 assert(
   scriptContent.includes('hookEventName'),
   'Hook output JSON preserved'

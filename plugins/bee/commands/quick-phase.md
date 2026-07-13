@@ -10,7 +10,7 @@ Read these files using the Read tool:
 - `.bee/config.json` — if not found: use `{}`
 - `.bee/PROJECT.md` — if not found: skip (project index not available)
 
-Read `config.implementation_mode` and store as `$IMPLEMENTATION_MODE`. If not set, defaults to `"premium"`. Valid values: `"economy"`, `"quality"`, `"premium"`. Per-agent model resolution follows the rule below.
+Read `config.implementation_mode` and store as `$IMPLEMENTATION_MODE`. If not set, defaults to `"premium"`. Valid values: `"economy"`, `"quality"`, `"premium"`, `"max-critical"`, `"max"` (max tiers per `skills/command-primitives/SKILL.md` Model Selection; unrecognized values behave as premium). Per-agent model resolution follows the rule below.
 
 See `skills/command-primitives/SKILL.md` Model Selection (Reasoning).
 Inputs: `$IMPLEMENTATION_MODE`. Apply to phase-planner / implementer / reviewer / validator agents.
@@ -44,6 +44,9 @@ What's the feature for this quick-phase? Describe it — bigger than a single qu
 ```
 
 Wait for the user's response. Store as `$DESCRIPTION`.
+
+See `skills/command-primitives/SKILL.md` Conversation Context Capture.
+Inputs: live chat after the most recent state-loading command. Apply FEATURE-SCOPE capture (NOT single-task) — `/bee:quick-phase` produces many tasks across waves, so capture buckets tight against the whole feature scope (`$DESCRIPTION`), then SLICE per-task into each spawned subagent's `## Prior Discussion` block (only bullets touching that task's files/AC). Empty buckets → silent skip, no output.
 
 ---
 
@@ -87,6 +90,9 @@ Task(
     QUICK-PHASE MINI-RESEARCH MODE -- No TASKS.md yet, no phase context.
 
     Scan the codebase to inform a single-phase feature: {$DESCRIPTION}
+
+    ## Prior Discussion
+    {Feature-scope capture buckets from the Conversation Context Capture reference (end of Step 2) — Decisions / Constraints / Ruled-out relevant to this feature. No per-task slice exists yet at research time, so this is the full feature-scope set. Omit this block when buckets are empty.}
 
     Project stack: {stack from config.json}
 
@@ -163,9 +169,14 @@ If "Cancel", stop. If "Proceed", continue. If "Edit scope", let the user refine 
 ## Mini-Research Summary
 {$MINI_RESEARCH}
 
+## Conversation Context
+{Feature-scope buckets captured per the Conversation Context Capture reference at the end of Step 2 — Decisions / Constraints / Ruled-out, tight against the whole feature scope. Omit this entire section (silent skip) when all buckets are empty.}
+
 ## Tasks
 {To be filled by bee:phase-planner agent}
 ```
+
+If all capture buckets are empty, do NOT write the `## Conversation Context` heading at all (silent skip — no empty section). When present, it is the FEATURE-SCOPE source the per-task `## Prior Discussion` slices draw from.
 
 6. Store the TASKS.md path as `$TASKS_FILE`.
 
@@ -361,7 +372,7 @@ AskUserQuestion(
 
 For each wave in TASKS.md (parsed `## Wave N` sections), run sequentially:
 
-1. **Build context packets** for all pending `[ ]` tasks in this wave. Follow the same per-task packet structure as execute-phase.md Step 5a (task identity, acceptance criteria, research notes, context file paths, dependency notes from prior wave `notes:`, stack-resolution + Stack Skill inline, TDD instruction, Phase Learnings). The packet is the sole input the implementer receives — it must be self-contained. Per-task context packets are sliced from TASKS.md per-task AC blocks (one packet per task).
+1. **Build context packets** for all pending `[ ]` tasks in this wave. Follow the same per-task packet structure as execute-phase.md Step 5a (task identity, acceptance criteria, research notes, context file paths, dependency notes from prior wave `notes:`, stack-resolution + Stack Skill inline, TDD instruction, Phase Learnings). The packet is the sole input the implementer receives — it must be self-contained. Per-task context packets are sliced from TASKS.md per-task AC blocks (one packet per task). Add a `## Prior Discussion` block to each packet, SLICED per-task from the plan TASKS.md `## Conversation Context` section — include only the bullets touching that task's `files_touched`/acceptance (this per-task slice is where "tight" bites). Omit the block for any task whose slice is empty.
 
 2. **Agent resolution (stack-specific fallback):** Per execute-phase.md:233-235 — for each task, check if `agents/stacks/{stack.name}/implementer.md` exists. If yes, use `{stack.name}-implementer` as the agent name. If no, fallback to the generic `implementer` agent. **NEVER use `quick-implementer` here** — quick-implementer expects single-AC-list plan files (the `/bee:quick` shape), but TASKS.md has per-task AC blocks. The generic `implementer` IS designed for per-task context packets and is the correct agent for wave execution.
 
@@ -383,7 +394,7 @@ For each wave in TASKS.md (parsed `## Wave N` sections), run sequentially:
 
 For each wave in TASKS.md (parsed `## Wave N` sections), run sequentially the wave loop from execute-phase.md Step 5 (inline reuse — slash-command handoff to `/bee:execute-phase` is NOT viable because that command requires a spec/phase row in STATE.md, which quick-phase does not have):
 
-1. **5a — Build context packets** for all pending `[ ]` tasks in this wave (same shape as Step 7a step 1: task identity, acceptance criteria, research notes, context file paths, dependency notes, stack resolution + Stack Skill inline, TDD instruction, Phase Learnings).
+1. **5a — Build context packets** for all pending `[ ]` tasks in this wave (same shape as Step 7a step 1: task identity, acceptance criteria, research notes, context file paths, dependency notes, stack resolution + Stack Skill inline, TDD instruction, Phase Learnings). Include the per-task-sliced `## Prior Discussion` block (only the plan TASKS.md `## Conversation Context` bullets touching that task's files/AC; omit when the slice is empty) — same per-task slice as Step 7a step 1.
 
 2. **5b — Spawn parallel implementer agents** with stack-specific fallback per execute-phase.md:233-235 (use stack-specific `{stack.name}-implementer` if `agents/stacks/{stack.name}/implementer.md` exists, otherwise generic `implementer`). NEVER `quick-implementer` — same rationale as Step 7a.
 

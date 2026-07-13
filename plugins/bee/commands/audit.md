@@ -102,9 +102,7 @@ Spawn audit agents in parallel batches. The order and grouping depends on `$IMPL
 
 **Economy mode:** Run agents sequentially (one at a time) to minimize token usage. Use sonnet for all agents.
 
-**Quality mode:** Run agents in two parallel batches:
-- **Batch 1** (spawn all 8 at once): `security-auditor`, `database-auditor`, `error-handling-auditor`, `architecture-auditor`, `api-auditor`, `frontend-auditor`, `performance-auditor`, `testing-auditor`
-- **Batch 2** (after batch 1 completes): `audit-bug-detector`, `integration-checker` (run last because they benefit from understanding the full codebase)
+**Quality mode:** Run ALL 10 agents in parallel (single batch): `security-auditor`, `database-auditor`, `error-handling-auditor`, `architecture-auditor`, `api-auditor`, `frontend-auditor`, `performance-auditor`, `testing-auditor`, `audit-bug-detector`, `integration-checker`. (`audit-bug-detector` and `integration-checker` discover the codebase themselves via Glob/Grep — they consume no output from the other auditors, so there is no reason to wait for a first batch. Quality differs from premium only in model tier, not batching.)
 
 **Premium mode (default):** Run ALL 10 agents in parallel (single batch), including `audit-bug-detector` and `integration-checker`.
 
@@ -145,7 +143,7 @@ If `$VALIDATE_MODE` is true:
 
 After all auditor agents (Step 4) complete, collect one `agent_outputs` entry per spawned agent: `{ agent: "security-auditor" | "database-auditor" | "error-handling-auditor" | "architecture-auditor" | "api-auditor" | "frontend-auditor" | "performance-auditor" | "testing-auditor" | "audit-bug-detector" | "integration-checker", transcript_path: "{path}", exit_code: 0 }`. The `agent` field MUST be the un-prefixed canonical slug matching a `VALIDATOR_ROSTER` entry from `validators-lib.js`. audit agents are global (non-stack-prefixed) — no prefix strip is required, but the slug-form must match the `VALIDATOR_ROSTER` filenames exactly. The `transcript_path` comes from either (a) the Task tool result returned by Claude Code for each spawned agent, or (b) the matching SubagentStop entry in `.bee/events/{today}.jsonl` filtered by the wave's timestamp window. Path (b) is reliably reachable in autonomous runs after the autonomous-marker bypass landed in T2.11.
 
-Build the stdin payload `{ cwd: "{$ROOT}", agent_outputs: [...], expected_count: {N} }` where `expected_count` matches the number of auditor agents actually spawned for the current `$IMPLEMENTATION_MODE` (8 for quality batch 1, 2 for quality batch 2, 10 for premium single batch). Invoke the batch validator:
+Build the stdin payload `{ cwd: "{$ROOT}", agent_outputs: [...], expected_count: {N} }` where `expected_count` matches the number of auditor agents actually spawned for the current `$IMPLEMENTATION_MODE` (10 for both quality and premium single batch). Invoke the batch validator:
 
 ```bash
 echo '{"cwd":"{$ROOT}","agent_outputs":[...],"expected_count":{N}}' | node ${CLAUDE_PLUGIN_ROOT}/scripts/hooks/validators/batch/audit-parallel-auditors.js

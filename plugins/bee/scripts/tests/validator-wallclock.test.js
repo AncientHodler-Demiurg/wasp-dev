@@ -283,6 +283,16 @@ const PASS_SKELETONS = {
     'false positive rate: 0%',
   ].join('\n'),
 
+  'finding-validator.js': [
+    '## Classification',
+    '',
+    'Finding: F-001',
+    'Verdict: REAL BUG',
+    'Confidence: HIGH',
+    'Source Agent: bug-detector',
+    'Reason: traced the null deref to src/auth.ts:42 and reproduced it.',
+  ].join('\n'),
+
   // Semantic (2) — TDD red→green + Task complete + N tests passing
   'implementer.js': TDD_TASK_COMPLETE_MSG,
   'quick-implementer.js': TDD_TASK_COMPLETE_MSG,
@@ -302,11 +312,11 @@ const PASS_SKELETONS = {
 // Test 1: Roster integrity — directory listing matches VALIDATOR_ROSTER
 // ===========================================================================
 console.log('Test 1: Roster integrity (single source of truth)');
-// Both validators-lib.js (Phase 1) and batch-lib.js (Phase 2) live alongside
-// per-agent validators but are sibling helper modules, not roster entries —
-// same filter pattern as validator-cross-platform.test.js NON_ROSTER_FILES.
+// validators-lib.js (Phase 1), batch-lib.js (Phase 2), and dispatch.js
+// (perf/validator-dispatcher) live alongside per-agent validators but are
+// sibling helper/routing modules, not roster entries.
 const dirContents = fs.readdirSync(VALIDATORS_DIR)
-  .filter((f) => f.endsWith('.js') && f !== 'validators-lib.js' && f !== 'batch-lib.js')
+  .filter((f) => f.endsWith('.js') && f !== 'validators-lib.js' && f !== 'batch-lib.js' && f !== 'dispatch.js')
   .sort();
 const expectedSorted = [...VALIDATOR_ROSTER].sort();
 track(

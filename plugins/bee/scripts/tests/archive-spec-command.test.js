@@ -284,6 +284,27 @@ assert(
 );
 
 // ============================================================
+// Test 13: Step 4.5 - terminalize spec in multi-spec registry
+// ============================================================
+console.log('\nTest 13: Step 4.5 - terminalize spec in multi-spec registry');
+assert(
+  content.includes('### Step 4.5'),
+  'Step 4.5 (Close the spec in the multi-spec registry) exists'
+);
+assert(
+  content.includes('specs-cli.js set-stage'),
+  'Step 4.5 invokes specs-cli.js set-stage'
+);
+assert(
+  content.includes('--stage archived'),
+  'Step 4.5 uses --stage archived for archive ceremony'
+);
+assert(
+  content.includes('unknown spec') || content.includes('legacy spec'),
+  'Step 4.5 handles legacy specs gracefully (unknown spec / legacy spec)'
+);
+
+// ============================================================
 // Results
 // ============================================================
 console.log(`\nResults: ${passed} passed, ${failed} failed out of ${passed + failed} assertions`);

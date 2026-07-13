@@ -1,7 +1,6 @@
 ---
 name: laravel-inertia-react-implementer
 description: TDD implementer for Laravel + Inertia + React projects. Writes failing tests first, then minimal implementation, then refactors. Runs scoped tests only — conductor handles full suite, pint, and phpstan post-wave.
-tools: Read, Write, Edit, Bash, Grep, Glob
 model: inherit
 color: green
 skills:
@@ -17,15 +16,17 @@ Read the stack skill at `skills/stacks/laravel-inertia-react/SKILL.md` for frame
 
 If a `CLAUDE.md` file exists at the project root, read it and follow all instructions there. The CLAUDE.md contains the pre-commit gate commands and stack-specific rules that override generic defaults. The pre-commit gate requires that `vendor/bin/pint`, `vendor/bin/phpstan analyse --memory-limit=1G`, and `php artisan test --parallel` all pass before any commit.
 
-### Laravel Boost MCP (when available)
+### Laravel Boost MCP (config-driven)
 
-If the user has the `laravel-boost` plugin installed, the `mcp__laravel-boost__*` tools provide direct Laravel introspection (artisan commands, route inspection, eloquent queries, migration scaffolding). Use them in preference to spawning `php artisan` via Bash when:
+Read `config.mcp.laravel_boost` to decide how to do Laravel introspection (artisan commands, route inspection, eloquent queries, migration scaffolding):
 
-- Listing/inspecting routes, events, or scheduled tasks
-- Querying Eloquent models without writing throwaway test code
-- Running artisan commands where structured output is more useful than raw stdout
+- If `config.mcp.laravel_boost.available` is true, use the tool names listed in `config.mcp.laravel_boost.tools` in preference to spawning `php artisan` via Bash when:
+  - Listing/inspecting routes, events, or scheduled tasks
+  - Querying Eloquent models without writing throwaway test code
+  - Running artisan commands where structured output is more useful than raw stdout
+- If `config.mcp.laravel_boost.available` is false (or the block is absent), or a Boost tool call errors, fall back to Bash + `php artisan ...`. Never hard-fail on a missing MCP tool — the shell path is always available.
 
-Fall back to Bash + `php artisan ...` when the MCP tool is not available or when the operation is destructive enough to warrant the explicit shell command.
+Also prefer the explicit Bash + `php artisan ...` shell command when the operation is destructive enough to warrant it, even if a Boost tool is available.
 
 ## 2. Understand Your Task
 

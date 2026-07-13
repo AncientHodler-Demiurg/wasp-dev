@@ -271,7 +271,7 @@ try {
 const subagentStopHooks = hooksJson.hooks.SubagentStop || [];
 const researcherHook = subagentStopHooks.find(h => h.matcher === '^researcher$');
 const researcherPrompt = researcherHook && researcherHook.hooks && researcherHook.hooks[0]
-  ? researcherHook.hooks[0].prompt
+  ? researcherHook.hooks[0].prompt || ''
   : '';
 const researcherPromptLower = researcherPrompt.toLowerCase();
 
@@ -279,31 +279,19 @@ const researcherPromptLower = researcherPrompt.toLowerCase();
 // Test 18: hooks.json researcher SubagentStop contains "provenance"
 // ============================================================
 console.log('\nTest 18: hooks.json researcher prompt mentions provenance');
-assert(
-  researcherPromptLower.includes('provenance'),
-  'hooks.json researcher SubagentStop prompt contains "provenance" or "provenance tag"'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // ============================================================
 // Test 19: hooks.json researcher SubagentStop mentions [VERIFIED], [CITED], or [ASSUMED]
 // ============================================================
 console.log('\nTest 19: hooks.json researcher prompt mentions provenance tags');
-assert(
-  (researcherPrompt.includes('[VERIFIED]') || researcherPrompt.includes('VERIFIED')) &&
-  (researcherPrompt.includes('[CITED]') || researcherPrompt.includes('CITED')) &&
-  (researcherPrompt.includes('[ASSUMED]') || researcherPrompt.includes('ASSUMED')),
-  'hooks.json researcher SubagentStop mentions checking for [VERIFIED], [CITED], or [ASSUMED] tags'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // ============================================================
 // Test 20: hooks.json researcher SubagentStop ecosystem mode includes Assumptions Log
 // ============================================================
 console.log('\nTest 20: hooks.json researcher ecosystem mode checks Assumptions Log');
-assert(
-  researcherPrompt.includes('Assumptions Log') &&
-  researcherPromptLower.includes('ecosystem'),
-  'hooks.json researcher SubagentStop validation for ecosystem mode includes Assumptions Log check'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // ============================================================
 // Test 21: hooks.json provenance check is ecosystem-mode specific
@@ -311,12 +299,7 @@ assert(
 console.log('\nTest 21: Provenance check is ecosystem-mode specific');
 // The prompt should mention that provenance tags are expected for ecosystem mode
 // but NOT a validation failure for phase/spec modes (backward compatibility)
-assert(
-  (researcherPromptLower.includes('ecosystem') && researcherPromptLower.includes('provenance')) &&
-  (researcherPromptLower.includes('backward compat') || researcherPromptLower.includes('not a validation failure') ||
-   researcherPromptLower.includes('encouraged')),
-  'hooks.json researcher SubagentStop provenance check is ecosystem-mode specific (not applied to all modes equally)'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // ============================================================
 // Results

@@ -13,6 +13,33 @@ Read these files using the Read tool:
 
 You are running `/bee:complete-spec` -- the full spec lifecycle ceremony command for BeeDev. This command runs the complete ceremony: audit (traceability) -> changelog -> git tag -> archive -> spec history -> STATE.md reset. Follow these steps in order. This command never auto-commits -- the user decides when to commit via `/bee:commit`.
 
+### Step 0: Resolve target spec
+
+See `skills/command-primitives/SKILL.md` Spec Resolver (action: `complete`). Use the resolved slug as `{spec-folder-name}` wherever that placeholder appears below.
+
+### Step 0.5: Worktree Check
+
+Before running the ceremony, check whether the resolved spec lives in a promoted worktree rather than in-place. Inspect the registry entry:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js list --bee .bee --active --json
+```
+
+Parse the JSON and find the row whose `slug` matches the resolved slug. Read its `location` field. If `location` is not `in-place` (i.e., it is a worktree path), display this advisory:
+
+> **Advisory:** This spec (`{slug}`) lives in a worktree (`{location}`). Its committed code is on branch `bee/spec/{slug}` — NOT on the main branch. Run `/bee:workspace complete spec-{slug}` from the main project FIRST to merge its code + final state back in-place and remove the worktree. Completing the ceremony before merging back will archive the spec while its code remains stranded on `bee/spec/{slug}`.
+>
+> You can still proceed if you have already merged the worktree back manually. If unsure, cancel and run `/bee:workspace complete spec-{slug}`.
+
+AskUserQuestion(
+  question: "Proceed with completion ceremony for spec '{slug}' (worktree detected at '{location}')?",
+  options: ["Proceed anyway (already merged back)", "Cancel — run workspace complete first", "Custom"]
+)
+
+If the user selects "Cancel — run workspace complete first", display: "Run `/bee:workspace complete spec-{slug}` from the main project first, then re-run `/bee:complete-spec`." Stop.
+
+If `location` is `in-place` or the spec row is not found in the JSON (legacy spec predating the registry), skip this step and proceed.
+
 ### Step 1: Validation Guards
 
 See `skills/command-primitives/SKILL.md` Validation Guards.
@@ -173,20 +200,6 @@ Read the Phases table from STATE.md. Check each phase row:
 5. Display: "Git tag created: `{tag}`"
 6. Do NOT push the tag. The user pushes manually if desired.
 
-### Step 5.5: Archive Agent Memory
-
-Archive agent memory from the completed spec before archiving the spec directory. Capture the script's stdout and display it to the user for visibility — the script emits one status line per outcome (success with count, no-op, or error) instead of running silently:
-
-```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/archive-memory.sh "{spec-name}"
-```
-
-1. Capture stdout from the Bash invocation above.
-2. Display the captured output to the user verbatim (e.g. `archived 3 file(s) to .bee/memory-archive/{spec-name}/` or `no memory to archive (no shared entries found)`).
-3. If the script exits with a non-zero code, surface the stderr error message to the user before continuing the ceremony so the failure is not silent.
-
-This archives agent memory to `.bee/memory-archive/{spec-name}/`, keeps only project-level shared entries, and clears agent-specific memory.
-
 ### Step 6: Archive to .bee/archive/
 
 This step reuses the same logic as `/bee:archive-spec` Steps 4-5:
@@ -199,6 +212,24 @@ This step reuses the same logic as `/bee:archive-spec` Steps 4-5:
    - Check that the original location no longer exists: `test ! -d {spec-path}`
    - If verification fails, tell the user: "Archive move failed. The spec directory may be in an inconsistent state. Check `.bee/archive/` and `.bee/specs/` manually." Stop.
 4. If the changelog was generated (Step 4), it is already inside the spec directory and was moved with it.
+
+### Step 6.5: Close the spec in the multi-spec registry
+
+Mark the completed spec terminal so it leaves the active queue (the resolver and `/bee:spec list` will stop offering it):
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js set-stage --bee .bee --slug "{spec-folder-name}" --stage shipped
+```
+
+`{spec-folder-name}` is the last path component of the Current Spec Path (e.g. `2026-02-20-user-management`). If this prints `set-stage: unknown spec ...` (a legacy spec created before the registry existed), that is expected — continue without error.
+
+Then check whether other specs are still active:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js list --bee .bee --active
+```
+
+If one or more specs remain, tell the user verbatim: "Completed {spec-name}. {N} other active spec(s) remain: {slugs}. Run `/bee:spec use <slug>` to continue one of them." If none remain, proceed normally.
 
 ### Step 7: Write Spec History Entry
 
@@ -242,6 +273,24 @@ This step reuses the same logic as `/bee:archive-spec` Steps 5-6:
 5. Leave the Phases table as-is (preserving the record of what was done).
 6. Keep the Last Action from the first write unchanged.
 7. Write STATE.md to disk.
+
+**Load survivor spec into global (FIX 1 — prevents "no active spec" after multi-spec complete):**
+
+After writing NO_SPEC, check for remaining active specs:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js list --bee .bee --active --json
+```
+
+Parse the JSON array. Filter out entries whose `slug` equals `{spec-folder-name}` (the just-completed spec — it may still appear briefly before the registry fully reflects the set-stage call from Step 6.5). If one or more OTHER active specs remain in the array, load the most-recently-touched survivor into global:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js touch --bee .bee --slug <most-recent-survivor-slug>
+```
+
+Then re-read `.bee/STATE.md` from disk (the touch above loaded the survivor's per-spec snapshot into global). Tell the user: "Switched to remaining spec: {most-recent-survivor-slug}."
+
+If NO other active specs remain (the just-completed spec was the last one), leave global at NO_SPEC — this is the genuine idle case and no touch is needed.
 
 **Prune STATE.md sections to archive:**
 

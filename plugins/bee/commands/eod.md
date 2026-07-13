@@ -61,6 +61,8 @@ Spawn ALL 4 agents simultaneously using the Task tool. Do NOT wait for one to fi
 
 **Economy or Quality mode**: Pass `model: "sonnet"` for all 4 agents. This keeps the audit fast and cost-efficient.
 
+**Max-critical mode**: behaves as premium (scanning-tier audit work never elevates). **Max mode**: pass `model: $CRITICAL_MODEL` for all 4 agents (Model Selection (Scanning), command-primitives). Unrecognized modes behave as premium.
+
 **Agent 1: integrity-auditor** (economy/quality: `model: "sonnet"`, premium: omit)
 Use the Task tool to spawn the `integrity-auditor` agent. Provide context:
 - "Check .bee/STATE.md against disk reality. Verify all referenced files exist, phase statuses are consistent, and no orphaned directories exist. Report findings in your final message."

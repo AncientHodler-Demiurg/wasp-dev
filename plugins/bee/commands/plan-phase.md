@@ -24,7 +24,27 @@ You are running `/bee:plan-phase` -- the three-step planning command for BeeDev.
 ### Step 1: Validation Guards
 
 See `skills/command-primitives/SKILL.md` Validation Guards.
-Apply: NOT_INITIALIZED, NO_SPEC, Phase Number Argument, Already Planned.
+Apply: NOT_INITIALIZED.
+
+If the dynamic context contains NO_SPEC and no spec.md exists in any `.bee/specs/*/` directory: tell the user "No active spec. Run `/bee:new-spec` first." Stop. (Fallback only — the resolver below handles this for the multi-spec case.)
+
+### Step: Resolve target spec
+
+See `skills/command-primitives/SKILL.md` Spec Resolver (action: `plan`, advance_stage: `planning`).
+
+### Step 1.5: Post-Resolve Guards (evaluate against the CHOSEN spec)
+
+These guards run AFTER spec resolution so they evaluate the correct spec's state.
+
+**Phase Number Argument:** See `skills/command-primitives/SKILL.md` Guard: Phase Number Argument. Check `$ARGUMENTS` for a phase number against the resolved spec's `phases.md`. If missing, prompt; if exceeds phase count, stop.
+
+**Already Planned:** See `skills/command-primitives/SKILL.md` Guard: Already Planned. Evaluate the resolved spec's STATE.md Phases table. If the target phase's Plan column is `Yes`: PLANNED → soft warning; EXECUTING+ → strong warning that progress may be lost. Stop unless the user confirms.
+
+**Committed-phase hard stop:** Re-read the resolved spec's STATE.md Phases table. If the target phase's Executed AND Committed columns are both populated (non-empty), STOP immediately with a strong warning:
+
+"Phase {N} of spec {slug} is already executed and committed. Re-planning will overwrite its committed TASKS.md. Because .bee/ is gitignored, this file is NOT recoverable from git. Confirm to proceed?"
+
+Use AskUserQuestion with options: ["Cancel (recommended)", "Proceed anyway (data loss risk)", "Custom"]. Only proceed on explicit "Proceed anyway" confirmation.
 
 ### Step 2: Create Phase Directory
 
@@ -537,14 +557,10 @@ Wait for all four agents to complete.
 
 After all four agents complete, deduplicate and consolidate their findings into categorized plan updates. Do NOT present raw review reports -- transform agent output into actionable plan update categories.
 
-**Deduplication (apply BEFORE categorization).** Apply the four dedup rules in order (cheapest first). Each rule is layered on top of the previous: a finding pair that already merged under an earlier rule is excluded from later rule evaluation. Record every merge in a `## Consolidation Log` section of REVIEW.md (see template at `skills/core/templates/review-report.md`):
+**Deduplication (apply BEFORE categorization).**
 
-- **Rule 0 — Same file + line range overlap (baseline):** For each pair of findings from different agents, check if they reference the same file AND their line ranges overlap (within 5 lines of each other). If so, merge — keep higher severity, concat categories.
-- **Rule 1 — root-cause signature:** For each remaining pair, merge if ≥80% body text overlap OR identical `Suggested Fix:` snippet. Keep higher severity; concat categories.
-- **Rule 2 — REQ-ID anchor:** For each remaining group, merge findings citing the same requirement (`REQ-NN`, `NFR-NN`, or equivalent anchor) into ONE composite finding that preserves all evidence chains.
-- **Rule 3 — cross-agent same-class consensus:** For each remaining group, if 3+ different agents flagged the same file:line area (within 5 lines) with similar defect-class descriptions, merge into ONE `[CONSENSUS]`-tagged finding with a single fix instruction.
-
-When merges happen, write a `## Consolidation Log` section to REVIEW.md documenting which finding IDs merged into which, which rule triggered the merge, source agents, and preserved evidence chains.
+See `skills/review-pipeline/SKILL.md` Deduplicate and Merge (Rules 0–3).
+Apply the four layered rules in order (cheapest first) and record every merge in a `## Consolidation Log` section of REVIEW.md (template: `skills/core/templates/review-report.md`) — which finding IDs merged into which, which rule triggered, source agents, preserved evidence chains.
 
 Then parse each agent's output:
 

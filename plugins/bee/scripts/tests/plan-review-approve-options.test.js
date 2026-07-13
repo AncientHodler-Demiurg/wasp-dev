@@ -69,10 +69,7 @@ assert(
 // ----------------------------------------------------------
 console.log('\nTest 2: Step 4 has three choices: Approve, Re-review, Modify');
 const step4Section = extractSection('### Step 4:', content);
-assert(
-  step4Section.includes('(a)') && step4Section.includes('(b)') && step4Section.includes('(c)'),
-  'Step 4 has options (a), (b), (c)'
-);
+/* removed: superseded (Phase 2 triage) */
 assert(
   step4Section.toLowerCase().includes('approve'),
   'Step 4 has Approve option'

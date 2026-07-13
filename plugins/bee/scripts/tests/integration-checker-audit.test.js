@@ -67,12 +67,19 @@ if (step4Match) {
 }
 
 // ============================================================
-// Test 3: integration-checker runs in Batch 2 (quality mode)
+// Test 3: integration-checker runs in the single parallel batch (no sequential Batch 2)
 // ============================================================
-console.log('\nTest 3: Batch 2 placement');
+// The two-batch quality sequencing was removed — audit-bug-detector and
+// integration-checker discover the codebase themselves (no dependency on the other
+// auditors), so quality now runs all 10 in one parallel batch like premium.
+console.log('\nTest 3: single-batch placement (no deferred Batch 2)');
 assert(
-  lowerAudit.includes('batch 2') && lowerAudit.includes('integration-checker'),
-  'integration-checker appears alongside Batch 2 reference'
+  !lowerAudit.includes('batch 2'),
+  'audit.md no longer defers integration-checker to a sequential Batch 2 (merged into one parallel batch)'
+);
+assert(
+  lowerAudit.includes('integration-checker'),
+  'integration-checker is still listed among the parallel audit agents'
 );
 
 // ============================================================

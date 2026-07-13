@@ -17,3 +17,5 @@ plugins/bee/dashboard/.vite/
 # Wasp local workflow state (not used inside this plugin repo, ignored for consistency with workspace projects)
 .wasp/
 
+# macOS
+.DS_Store

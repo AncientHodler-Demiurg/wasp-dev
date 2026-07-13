@@ -21,9 +21,14 @@ function assert(condition, testName) {
 }
 
 // ============================================================
-// Test 1: inject-memory.sh case statement includes context-builder
+// Test 1: inject-memory.sh is_bee_agent() allowlist includes context-builder
+//
+// The agent-allowlist gate moved from a top-level `case "$AGENT_TYPE" in`
+// into an `is_bee_agent()` function that switches on its first argument
+// (`case "$1" in`). The context-builder must be in that allowlist or it
+// receives no injected user preferences.
 // ============================================================
-console.log('Test 1: inject-memory.sh includes context-builder in case statement');
+console.log('Test 1: inject-memory.sh is_bee_agent() allowlist includes context-builder');
 
 let scriptContent;
 try {
@@ -34,14 +39,19 @@ try {
   process.exit(1);
 }
 
-const caseMatch = scriptContent.match(/case\s+"\$AGENT_TYPE"\s+in\s*\n([\s\S]*?)\nesac/);
-assert(caseMatch !== null, 'case statement for AGENT_TYPE exists');
+assert(
+  /is_bee_agent\s*\(\)\s*\{/.test(scriptContent),
+  'is_bee_agent() allowlist function is defined'
+);
+
+const caseMatch = scriptContent.match(/case\s+"\$1"\s+in\s*\n([\s\S]*?)\n\s*esac/);
+assert(caseMatch !== null, 'is_bee_agent() switches on its first argument (case "$1" in)');
 
 if (caseMatch) {
   const caseBlock = caseMatch[1];
   assert(
     caseBlock.includes('context-builder'),
-    'Case statement includes context-builder'
+    'is_bee_agent() allowlist includes context-builder'
   );
 }
 
@@ -124,14 +134,14 @@ for (const agent of existingHooksAgents) {
 // ============================================================
 // Test 5: No other lines modified (structural integrity)
 // ============================================================
-console.log('\nTest 5: No other structural changes');
+console.log('\nTest 5: Memory-injection mechanism intact (reads user.md, emits additionalContext)');
 assert(
-  scriptContent.includes('MEMORY_DIR="$BEE_DIR/memory"'),
-  'inject-memory.sh MEMORY_DIR variable preserved'
+  scriptContent.includes('$BEE_DIR/user.md'),
+  'inject-memory.sh reads user preferences from .bee/user.md'
 );
 assert(
-  scriptContent.includes('shared.md'),
-  'inject-memory.sh shared memory reading preserved'
+  /##\s*User Preferences/.test(scriptContent),
+  'inject-memory.sh labels the injected block as "## User Preferences"'
 );
 assert(
   scriptContent.includes('additionalContext'),

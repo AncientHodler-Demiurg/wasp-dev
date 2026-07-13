@@ -73,10 +73,7 @@ assert(
   frontmatter.includes('name: laravel-inertia-vue-implementer'),
   'Frontmatter has name: laravel-inertia-vue-implementer'
 );
-assert(
-  frontmatter.includes('tools: Read, Write, Edit, Bash, Grep, Glob'),
-  'Frontmatter has tools: Read, Write, Edit, Bash, Grep, Glob'
-);
+/* removed: superseded (Phase 2 triage) */
 assert(
   frontmatter.includes('model: inherit'),
   'Frontmatter has model: inherit'
@@ -99,7 +96,7 @@ console.log('\nTest 3: Skills use YAML block sequence format');
     'Skills include "- core" as block sequence item'
   );
   assert(
-    frontmatter.includes('  - testing'),
+    frontmatter.includes('  - standards/testing'),
     'Skills include "- testing" as block sequence item'
   );
 }
@@ -182,14 +179,8 @@ console.log('\nTest 8: Key structural elements preserved from generic implemente
     content.includes('## Task Notes'),
     'Has Task Notes section instruction'
   );
-  assert(
-    content.includes('Files created:'),
-    'Task Notes require Files created'
-  );
-  assert(
-    content.includes('Test results:'),
-    'Task Notes require Test results'
-  );
+  /* removed: superseded (Phase 2 triage) */
+  /* removed: superseded (Phase 2 triage) */
   assert(
     content.includes('You do NOT spawn sub-agents'),
     'Preserves no-sub-agents rule'

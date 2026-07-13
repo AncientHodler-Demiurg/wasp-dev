@@ -1,5 +1,5 @@
 ---
-description: Update bee statusline and clean up legacy local copies
+description: Update bee statusline, re-discover config capabilities (MCP, LSP, models), and clean up legacy local copies
 argument-hint: ""
 ---
 
@@ -103,6 +103,26 @@ If the existing config's `max_tokens_per_team_op` differs from the computed valu
 - After write, re-read and verify the env var is set. If verification fails, set `agent_teams.status = "declined"` + display recovery guidance.
 
 **4. If status changed:** include a one-line note in the Step 5 summary (e.g., "Agent Teams: now enabled" or "Agent Teams: feature became available — declined").
+
+### Step 4c.5: Config Capability Re-Discovery (mcp + lsp + models)
+
+Plugin upgrades add config sections that older installs never received at `/bee:init` (the `mcp` section landed in v4.5.2, `lsp` and `models` in v4.6.0; multi-spec (the `.bee/specs.json` registry) landed in v4.8.0). Without this step, an upgraded user silently runs with those capabilities disabled — e.g., agents never use LSP navigation because `config.lsp` is absent and the Rule 13 fallback degrades to pure grep without any error. `/bee:update` is the natural moment to close that gap.
+
+Skip this entire step if `.bee/config.json` does not exist (project not initialized — nothing to update).
+
+**1. MCP tool re-discovery:** re-run the MCP discovery contract from `/bee:init` Step 3.8 (ToolSearch + fingerprint-match rule + the `context7`/`laravel_boost` capability keys — the SAME do-not-diverge contract `/bee:refresh-context` Step 3 uses). Persist via a JSON-aware Read-Modify-Write that mutates ONLY the `mcp` key.
+
+**2. LSP availability re-discovery:** re-run the LSP discovery contract from `/bee:init` Step 3.9 (ONE representative source file per configured stack, `LSP` tool `documentSymbol` probe, error-as-unavailable rule, per-stack `available` booleans — the SAME do-not-diverge contract `/bee:refresh-context` Step 3.5 uses). Persist via a JSON-aware Read-Modify-Write that mutates ONLY the `lsp` key. Language servers are often configured AFTER init, so re-probe even when the section already exists — a stale all-false section is exactly the "LSP is never used" failure mode this step exists to fix.
+
+**3. `models` section backfill:** if `config.models` is absent, add `"models": { "critical": "fable" }` (the v4.6 default — consumers already resolve this default when the key is absent, so this is cosmetic consistency; mutate ONLY the `models` key). If present, leave untouched (the user may have customized it).
+
+**4. Multi-spec registry backfill:** If `.bee/STATE.md` shows an active spec (Current Spec Status is not `NO_SPEC`) but `.bee/specs.json` is absent or does not list that spec, register the existing spec so it appears in `/bee:spec list` after the upgrade. Derive the slug = the last path component of the Current Spec Path; then run:
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js touch --bee .bee --slug <slug>
+```
+The `touch` subcommand self-heals: it back-registers the legacy spec (creates the per-spec STATE.md snapshot + memory.md + the registry row), idempotently and without changing the spec's state. Single-spec projects that never use multi-spec are otherwise unaffected (the registry also self-populates lazily on the first spec command). Note in the Step 5 summary: "Multi-spec registry: backfilled `<slug>`" or "Multi-spec: already registered / no active spec".
+
+Discovery NEVER hard-fails: on any probe/tool error, write the all-false defaults (or leave the section as-is if it already exists) and continue. Include a one-line note per section in the Step 5 summary (e.g., "config.lsp: discovered — {stack}: available" or "config.lsp: probe found no language server (agents use grep navigation)").
 
 ### Step 4d: Thinking-Principles Awareness Reminder
 

@@ -33,8 +33,18 @@ const path = require('path');
 
 // ===== Parsers =====
 
-// Match a task block opener: `- [ ] T1.1 | desc | agent` or `- [x] ...`
+// Match a task block opener: `- [ ] T1.1 | desc | agent` or `- [x] ...`.
+// Group 3 is the trailing segment (agent, plus any inline `| needs: ...`).
 const TASK_HEADER_RE = /^-\s*\[[\sx]\]\s+(T\d+(?:\.\d+)+)\s*\|\s*([^|]+?)\s*\|\s*(.+)$/;
+
+// Section heading that opens a wave block: `### Wave 2` (phase files) or
+// `## Wave 2` (template). The wave number is captured.
+const WAVE_HEADER_RE = /^#{2,4}\s+Wave\s+(\d+)\b/i;
+
+// Inline dependency declaration on the task header line's trailing segment:
+// `bee-implementer | needs: T1.1, T1.2`. Bee's canonical schema puts `needs`
+// here, NOT as a `- needs:` sub-field.
+const INLINE_NEEDS_RE = /\|\s*needs:\s*(.+)$/i;
 
 /**
  * Returns true when a line should close (terminate) the current task block.
@@ -68,19 +78,51 @@ function parseTasks(tasksMdText) {
   // (for files_touched / acceptance) we expect sub-bullet lines to follow.
   let pendingField = null;
   let pendingAccumulating = false;
+  // Wave membership in bee's canonical schema is set by a `### Wave N` section
+  // header that a task sits under, not by a per-task `- wave:` sub-field.
+  // Track the wave of the most recent header so each task inherits it.
+  let currentWave = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+
+    const waveHeaderMatch = line.match(WAVE_HEADER_RE);
+    if (waveHeaderMatch && !line.match(TASK_HEADER_RE)) {
+      // A wave section header also terminates any open task block.
+      if (current) {
+        tasks.push(current);
+        current = null;
+        pendingField = null;
+        pendingAccumulating = false;
+      }
+      const n = parseInt(waveHeaderMatch[1], 10);
+      currentWave = isNaN(n) ? null : n;
+      continue;
+    }
+
     const headerMatch = line.match(TASK_HEADER_RE);
 
     if (headerMatch) {
       if (current) tasks.push(current);
+      const trailing = headerMatch[3].trim();
+      // Split the trailing segment into the agent and an optional inline
+      // `| needs: ...` dependency list (bee's canonical dependency location).
+      const inlineNeedsMatch = trailing.match(INLINE_NEEDS_RE);
+      let agent = trailing;
+      let inlineNeeds = [];
+      if (inlineNeedsMatch) {
+        agent = trailing.slice(0, inlineNeedsMatch.index).replace(/\|\s*$/, '').trim();
+        inlineNeeds = inlineNeedsMatch[1]
+          .split(',')
+          .map(s => s.trim().replace(/^['"]/, '').replace(/['"]$/, ''))
+          .filter(Boolean);
+      }
       current = {
         id: headerMatch[1],
         description: headerMatch[2].trim(),
-        agent: headerMatch[3].trim(),
-        wave: null,
-        needs: [],
+        agent,
+        wave: currentWave,
+        needs: inlineNeeds,
         files_touched: [],
         filesTouchedPresent: false,
         requirements: [],
@@ -726,7 +768,12 @@ function main() {
     const reqIds = parseRequirements(reqsText);
     findings.push(...check4_reqAnchors(tasks, reqIds));
   }
-  findings.push(...check5_filesTouched(tasks));
+  // check5_filesTouched is intentionally NOT run here: bee's canonical TASKS.md
+  // schema (skills/core/templates/tasks.md) has no per-task `files_touched:`
+  // field — file ownership lives in the prose Wave Plan, which is not
+  // machine-parseable per task. Running the check would false-flag every real
+  // bee plan. The function is retained as an export for callers that supply a
+  // files_touched-bearing schema, but the CLI gate does not emit its findings.
   findings.push(...check6_dependsOnTypo(tasksText));
   findings.push(...check7_acceptance(tasks));
 

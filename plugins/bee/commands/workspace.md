@@ -171,6 +171,8 @@ If this command fails: display the error message. Do NOT register in workspaces.
 cp -r "$MAIN_PROJECT_PATH/.bee/" "${WORKTREE_BASE}/{name}/.bee/"
 ```
 
+Note: workspaces created via `specs-cli.js promote` will have a `.bee/worktree-spec` marker file written into the worktree by the promote flow. This marker binds the worktree to its spec slug and is read by the `complete` subcommand during spec-aware state reconciliation (Step 4g-bis).
+
 Remove workspaces.json from the copy (workspace should NOT have its own copy of the central registry):
 
 ```bash
@@ -416,7 +418,7 @@ If the conflict pre-check (4c-bis) found a clean merge, show the standard confir
 
 ```
 AskUserQuestion(
-  question: "Complete workspace '{name}'? This will merge branch bee/workspace/{name} into {source_branch} and remove the worktree.",
+  question: "Complete workspace '{name}'? This will merge branch {branch} into {source_branch} and remove the worktree.",
   options: ["Yes, merge and clean up", "No, cancel", "Custom"]
 )
 ```
@@ -442,7 +444,7 @@ git -C {$MAIN_PROJECT_PATH} checkout {source_branch}
 **4g. Merge workspace branch:**
 
 ```bash
-git -C {$MAIN_PROJECT_PATH} merge --no-ff bee/workspace/{name} -m "Merge workspace: {name}"
+git -C {$MAIN_PROJECT_PATH} merge --no-ff {branch} -m "Merge workspace: {name}"
 ```
 
 If merge fails (conflicts):
@@ -454,7 +456,48 @@ If merge fails (conflicts):
 **Conflict recovery:** When `workspace complete` is called on a workspace with status `conflicted`:
 1. Check if the main worktree still has unresolved merge conflicts: `git -C "$MAIN_PROJECT_PATH" diff --name-only --diff-filter=U`
 2. If conflicts remain: display "Merge conflicts still unresolved. Resolve them in {$MAIN_PROJECT_PATH} first, then re-run `/bee:workspace complete {name}`."
-3. If no conflicts (user resolved them): complete the merge with `git -C "$MAIN_PROJECT_PATH" commit --no-edit`, then proceed to worktree removal (Step 4h).
+3. If no conflicts (user resolved them): complete the merge with `git -C "$MAIN_PROJECT_PATH" commit --no-edit`, then proceed to Step 4g-bis (spec-aware reconciliation) before removing the worktree (Step 4h). This ensures a promoted spec's state is carried back even on the conflict-recovery path.
+
+**4g-bis. Spec-aware state reconciliation (promoted specs):**
+
+Because `.bee/` is gitignored, the merge above brings back the spec's *code* but not its `.bee/` state. If this workspace was a promoted spec, carry its state back before removing the worktree.
+
+1. Check whether this workspace entry has a `spec_slug` field (read from workspaces.json earlier in Step 4b). If it does, treat as a promoted spec and continue; if not, skip reconciliation and proceed to Step 4h (generic workspace — no state to carry back).
+
+2. Read `{workspace_path}/.bee/worktree-spec`. If the marker is MISSING despite the workspace entry having a `spec_slug`:
+   - Display a WARNING: "workspace {name} is a promoted spec ({spec_slug}) but its worktree-spec marker is missing; skipping state reconciliation — main may hold stale spec state"
+   - Skip Steps 3-5 below; proceed directly to Step 4h.
+
+3. Read the slug from the marker into `$SPEC_SLUG`.
+
+4. Verify the promoted spec state exists in the worktree before copying. If `{workspace_path}/.bee/specs/${SPEC_SLUG}/` does NOT exist:
+   - Display an error: "promoted spec state missing in worktree — skipping reconciliation and PRESERVING the worktree so you can recover"
+   - Do NOT run `set-location` or remove the worktree (Step 4h).
+   - Stop the complete flow here.
+
+5. Copy the spec's folder back over main (final STATE.md, memory.md, plan artifacts) with an explicit exit-code check:
+   ```bash
+   cp -r "{workspace_path}/.bee/specs/${SPEC_SLUG}/" "$MAIN_PROJECT_PATH/.bee/specs/${SPEC_SLUG}/" || {
+     echo "error: copy-back of spec state failed — PRESERVING worktree so you can recover"
+     # Do NOT remove the worktree (Step 4h) and do NOT flip set-location — stop here.
+   }
+   ```
+   If the copy fails, rollback — preserve the worktree (skip Steps 4h–4i), display the error, and stop. The invariant: NEVER remove the worktree if the copy-back did not verifiably succeed.
+
+6. After the copy, verify the spec state landed in main. Check that `$MAIN_PROJECT_PATH/.bee/specs/${SPEC_SLUG}/STATE.md` exists. If it does NOT:
+   - Display an error: "copy-back appeared to succeed but STATE.md is missing in main — PRESERVING the worktree so you can recover"
+   - Do NOT run `set-location` or remove the worktree (Step 4h).
+   - Stop the complete flow here.
+
+7. Reset the spec's location in the main registry to in-place (it now lives in main again):
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js set-location --bee "$MAIN_PROJECT_PATH/.bee" --slug "${SPEC_SLUG}" --location in-place
+   ```
+
+8. Re-sync the global STATE.md mirror from the reconciled per-spec snapshot (without this step, the global would remain pinned to the stale promote-time snapshot, and the next `/bee:spec use`/`resume`/etc. would call `snapshotToPerSpec` because `g === slug`, copying the stale global back over the just-merged per-spec STATE.md and losing the merge-back):
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js sync-global --bee "$MAIN_PROJECT_PATH/.bee" --slug "${SPEC_SLUG}"
+   ```
 
 **4h. Remove worktree:**
 
@@ -465,7 +508,7 @@ git worktree remove {workspace_path}
 **4i. Delete branch:**
 
 ```bash
-git -C "$MAIN_PROJECT_PATH" branch -d bee/workspace/{name}
+git -C "$MAIN_PROJECT_PATH" branch -d {branch}
 ```
 
 **4j. Update workspaces.json:**

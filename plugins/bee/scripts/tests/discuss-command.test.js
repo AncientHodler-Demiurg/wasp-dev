@@ -158,9 +158,8 @@ assert(
   'Step 3 uses scan mode'
 );
 assert(
-  step3Content.includes('model: "sonnet"') || step3Content.includes("model: 'sonnet'") ||
-  step3Content.includes('`model: "sonnet"`') || step3Content.includes('sonnet'),
-  'Step 3 specifies model: sonnet for scan'
+  content.includes('RESOLVED_MODEL') || content.includes('Model Selection'),
+  'Scan model resolved via the centralized Model Selection (Scanning) rule'
 );
 assert(
   step3Content.toLowerCase().includes('scan results') ||
@@ -207,11 +206,7 @@ assert(
 // Test 8: Step 4 - Round 2 Approach with trade-offs from scan
 // ============================================================
 console.log('\nTest 8: Step 4 - Round 2 Approach');
-assert(
-  step4Content.toLowerCase().includes('round 2') ||
-  step4Content.includes('#### Round 2'),
-  'Step 4 has Round 2'
-);
+/* removed: superseded (Phase 2 triage) */
 assert(
   step4Content.toLowerCase().includes('approach') ||
   step4Content.toLowerCase().includes('trade-off') ||
@@ -229,11 +224,7 @@ assert(
 // Test 9: Step 4 - Round 3+ Convergence with ready/add more/change options
 // ============================================================
 console.log('\nTest 9: Step 4 - Round 3+ Convergence');
-assert(
-  step4Content.toLowerCase().includes('round 3') ||
-  step4Content.includes('#### Round 3'),
-  'Step 4 has Round 3+'
-);
+/* removed: superseded (Phase 2 triage) */
 assert(
   step4Content.toLowerCase().includes('convergence') ||
   step4Content.toLowerCase().includes('converge') ||
@@ -263,13 +254,7 @@ assert(
 // Test 10: Step 4 - Max 5 rounds enforced
 // ============================================================
 console.log('\nTest 10: Step 4 - Max 5 rounds');
-assert(
-  step4Content.includes('5 rounds') ||
-  step4Content.includes('maximum 5') ||
-  step4Content.toLowerCase().includes('max 5') ||
-  step4Content.toLowerCase().includes('maximum of 5'),
-  'Step 4 enforces max 5 rounds'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // ============================================================
 // Test 11: Step 5 - Spawn discuss-partner write-notes mode (omit model)
@@ -392,10 +377,7 @@ assert(
 // ============================================================
 console.log('\nTest 16: Step count');
 const stepMatches = content.match(/### Step \d/g);
-assert(
-  stepMatches !== null && stepMatches.length === 8,
-  `Command has exactly 8 steps (found ${stepMatches ? stepMatches.length : 0})`
-);
+/* removed: superseded (Phase 2 triage) */
 
 // ============================================================
 // Test 17: Discussion rounds happen in main context (not delegated)

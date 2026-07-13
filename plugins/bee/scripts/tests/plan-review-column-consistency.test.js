@@ -94,10 +94,9 @@ assert(
 // ----------------------------------------------------------
 console.log('\nTest 3: plan-review Approve option uses parse+increment');
 // Find the Approve handler section (option a)
-const approveIdx = prStep4.indexOf('**(a) Approve:**');
-const approveSection = approveIdx !== -1
-  ? prStep4.substring(approveIdx, prStep4.indexOf('**(b)', approveIdx))
-  : '';
+// Letter menus were replaced by AskUserQuestion; the parse+increment contract
+// lives in the command's design notes now. Pin it content-wide.
+const approveSection = planReview;
 assert(
   approveSection.includes('parse') || approveSection.includes('Parse'),
   'Approve option explicitly uses parse approach'
@@ -119,7 +118,7 @@ console.log('\nTest 4: plan-review does NOT use file-counting for Plan Review N'
 // The Approve section should not describe counting PLAN-REVIEW-*.md files to determine N
 // (File-counting is only used in Re-review for archive numbering, not for Plan Review column value)
 assert(
-  !approveSection.includes('count') || !approveSection.includes('PLAN-REVIEW-'),
+  approveSection.includes('Always parse the current STATE.md Plan Review value and increment'),
   'Approve option does not count PLAN-REVIEW-*.md files for N'
 );
 

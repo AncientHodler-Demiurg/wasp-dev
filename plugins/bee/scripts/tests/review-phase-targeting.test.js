@@ -49,18 +49,17 @@ try {
 // ==============================================================
 console.log('=== AC1: review.md phase detection uses "last" ===\n');
 
-// The phase detection step should say "last" not "first"
-const reviewPhaseDetection = reviewContent.substring(
-  reviewContent.indexOf('Phase detection'),
-  reviewContent.indexOf('Phase detection') + 800
-);
-
+// The phase-detection contract: review targets the LAST executed/reviewed
+// phase, never the first. (The old 800-char indexOf window was broken — the
+// anchor phrase never existed in review.md, so it silently checked the file
+// header. Pin the contract on the whole file instead.)
 assert(
-  reviewPhaseDetection.toLowerCase().includes('last'),
-  'review.md phase detection says "last"'
+  reviewContent.includes('last EXECUTED or REVIEWED phase') ||
+    (reviewContent.toLowerCase().includes('auto-detect') && reviewContent.toLowerCase().includes('last')),
+  'review.md phase detection targets the most recently executed phase'
 );
 assert(
-  !reviewPhaseDetection.toLowerCase().includes('find the first phase'),
+  !reviewContent.toLowerCase().includes('find the first phase'),
   'review.md phase detection does NOT say "find the first phase"'
 );
 
@@ -180,19 +179,17 @@ assert(
 // ==============================================================
 console.log('\n=== AC7: Error handling for explicit phase argument ===\n');
 
-// review.md should handle invalid explicit phase
+// review.md phase-status validation: owned by the Validation Guards primitive,
+// applied with explicit allowed statuses. (The old asserts matched unrelated
+// text — "does not exist" came from FP-extraction prose — so they pin the
+// actual guard now.)
 assert(
-  reviewContent.toLowerCase().includes('does not exist') ||
-    reviewContent.toLowerCase().includes('non-existent'),
-  'review.md handles non-existent phase in explicit argument'
+  reviewContent.includes('Phase Status') && reviewContent.includes('$ALLOWED_STATUSES'),
+  'review.md applies the Phase Status validation guard with explicit allowed statuses'
 );
-
-// review.md should handle wrong status for explicit phase
 assert(
-  reviewContent.toLowerCase().includes('wrong status') ||
-    reviewContent.toLowerCase().includes('not in') ||
-    (reviewContent.toLowerCase().includes('status') && reviewContent.toLowerCase().includes('error')),
-  'review.md handles wrong status for explicit phase argument'
+  reviewContent.includes('EXECUTED, REVIEWED, REVIEWING'),
+  'review.md allowed statuses cover executed/reviewed/reviewing phases'
 );
 
 // test.md should handle invalid explicit phase

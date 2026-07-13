@@ -21,6 +21,10 @@ If the dynamic context above contains "NOT_INITIALIZED" (meaning `.bee/STATE.md`
 
 Do NOT proceed with any further steps.
 
+### Step: Resolve target spec
+
+See `skills/command-primitives/SKILL.md` Spec Resolver (action: `discuss`, on_no_spec: `proceed`, advance_stage: `discussing`).
+
 ### Step 2: Get Topic
 
 Check `$ARGUMENTS` for a topic description.
@@ -34,6 +38,9 @@ If no arguments are provided, use AskUserQuestion to ask the user:
 Wait for the user's response. Store their answer as `$TOPIC`.
 
 Derive a slug from the topic for later use: slugify the first 3-4 words (lowercase, hyphens, no spaces or special characters).
+
+See `skills/command-primitives/SKILL.md` Conversation Context Capture.
+Inputs: live chat since the most recent state-loading command + `$TOPIC`. Apply: filter tight against the discussion `$TOPIC` (discuss spawns only the discuss-partner agent, no implementers); inject the captured buckets into the discuss-partner `## Prior Discussion` block (Step 3) and persist them to the discussion notes artifact (Step 5), since discuss has no plan file.
 
 ### Batch Mode Detection
 
@@ -171,6 +178,9 @@ Task(
     $MODE = \"scan\"
 
     Discussion topic: {$TOPIC}
+
+    ## Prior Discussion
+    {Captured Conversation Context buckets (Decisions / Constraints / Ruled-out) filtered tight against $TOPIC per the Conversation Context Capture primitive. Omit this block when the buckets are empty.}
 
     Project stack: {stack from config.json}
 
@@ -360,7 +370,13 @@ Task(
     Scan results:
     {$SCAN_RESULT — codebase context from Step 3}
 
-    Write structured discussion notes to the output path.
+    ## Prior Discussion
+    {Captured Conversation Context buckets (Decisions / Constraints / Ruled-out) filtered tight against $TOPIC per the Conversation Context Capture primitive — fed to you as input. Provided only when non-empty; omit when empty.}
+
+    Write structured discussion notes to the output path. When the Prior Discussion input above is non-empty, persist it into the notes artifact as a section under this exact heading (the discussion notes artifact is the persistent analogue for this command, since discuss has no plan file):
+
+    ## Conversation Context
+    {The captured Decisions / Constraints / Ruled-out buckets, written into the notes file verbatim. Omit this section entirely when the Prior Discussion input is empty.}
   "
 )
 ```
@@ -416,6 +432,6 @@ AskUserQuestion(
 - The self-check every 3 questions prevents both premature convergence (too few questions) and interview fatigue (too many without progress).
 - The decomposition check (Phase 1) catches multi-subsystem topics early, preventing unfocused discussions that try to cover too much ground.
 - The approaches phase (Phase 3) uses scan results to present concrete options with codebase-informed trade-offs, not generic alternatives.
-- The scan spawn uses `model: "sonnet"` for economy/quality mode (structured codebase scanning) and omits the model for premium mode. The write-notes spawn always omits the model (inherits parent -- deeper reasoning for distillation).
+- The scan spawn uses `model: "sonnet"` for economy/quality mode (structured codebase scanning), omits the model for premium and max-critical mode (scanning never elevates), and passes `model: $CRITICAL_MODEL` under max (Model Selection (Scanning), command-primitives). The write-notes spawn always omits the model (inherits parent -- deeper reasoning for distillation).
 - The output path `.bee/discussions/{YYYY-MM-DD}-{slug}.md` follows the same dating convention as specs.
 - This command never auto-commits. The user decides when to commit via `/bee:commit`.

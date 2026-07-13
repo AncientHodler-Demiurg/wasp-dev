@@ -20,6 +20,8 @@ This guide teaches you to use Bee intelligently -- when to suggest commands, wha
 | COMPLETED | -- | `/bee:complete-spec` | Run completion ceremony |
 | ARCHIVED | -- | `/bee:new-spec` | Start fresh |
 
+These states reflect the FOCUSED spec (the global STATE.md mirror). With 2+ active specs a spec command shows a picker; if the global shows NO_SPEC but the registry has active specs, suggest `/bee:spec use <slug>` / `/bee:spec list` (do NOT assume the project is idle).
+
 ### Phase-Level Substates (within IN_PROGRESS)
 
 | Phase Status | Suggest | Notes |
@@ -42,8 +44,13 @@ This guide teaches you to use Bee intelligently -- when to suggest commands, wha
 | 3+ phases remain unplanned | `/bee:plan-all` | Batch plan saves time |
 | All phases PLAN_REVIEWED | `/bee:autonomous` or `/bee:ship` | Batch execute with review loops |
 | Urgent bug mid-execution | `/bee:insert-phase N.1` | Decimal phase insertion |
-| Multiple independent features | `/bee:workspace new` | Parallel worktrees |
+| Multiple independent features | `/bee:spec promote <slug>` (spec-first) or `/bee:workspace new` (ad-hoc) | `/bee:spec promote` carries the spec's plan and state into a dedicated worktree; `/bee:workspace new` is for generic/ad-hoc parallel work without an existing spec |
+| Switch focus between active specs | `/bee:spec use <slug>` | Re-focuses the session on a different active spec |
+| See all active specs at a glance | `/bee:spec dashboard` | Multi-spec roster with stage/location per spec |
 | All phases COMMITTED | `/bee:complete-spec` | Full ceremony (audit + changelog + tag + archive) |
+| Promoted spec finished (phases COMMITTED, location is a worktree) | `/bee:workspace complete spec-<slug>` THEN `/bee:complete-spec` | Merge code+state back BEFORE the completion ceremony — otherwise the worktree's code is stranded |
+| Start a 2nd feature while one is in progress | `/bee:new-spec` (it no longer archives the active spec — both queue) | Multiple active specs are expected; switch with `/bee:spec use` |
+| Per-spec memory | `.bee/specs/<slug>/memory.md` is injected when exactly one spec is active | Keeps spec-scoped preferences and context in scope |
 
 ## 2. Command Reference by Intent
 
@@ -54,6 +61,7 @@ This guide teaches you to use Bee intelligently -- when to suggest commands, wha
 | New feature (clear requirements) | `/bee:new-spec` | Requirements already known |
 | Quick bug fix or small change | `/bee:quick` | Single-phase fast loop |
 | Defer an idea for later | `/bee:seed` | Capture with trigger conditions |
+| Start another feature while one is still building | `/bee:new-spec` (queues alongside; does NOT archive the active spec) | -- |
 
 ### Plan Work
 | Intent | Command |
@@ -71,7 +79,11 @@ This guide teaches you to use Bee intelligently -- when to suggest commands, wha
 | Execute planned phase | `/bee:execute-phase N` |
 | Run everything hands-free | `/bee:autonomous` (plan+execute+review per phase) |
 | Execute + review + commit all | `/bee:ship` (for PLAN_REVIEWED phases) |
-| Work on two features at once | `/bee:workspace new {name}` |
+| Work on two specs in parallel (spec-first) | `/bee:spec promote <slug>` — promotes existing spec + its plan/state into its own worktree |
+| Merge a finished promoted spec back in-place | `/bee:workspace complete spec-<slug>` |
+| Ad-hoc parallel work (no existing spec) | `/bee:workspace new {name}` |
+| Switch focused spec | `/bee:spec use <slug>` |
+| See all active specs | `/bee:spec list` or `/bee:spec dashboard` |
 
 ### Review and Fix
 | Intent | Command | Scope |
@@ -177,7 +189,7 @@ See `skills/command-primitives/SKILL.md` Scoped Test Selection for the per-runne
 | Cross-session knowledge | `/bee:thread` |
 | Save context before compact | `/bee:compact` |
 | End of day integrity check | `/bee:eod` |
-| View preferences | `/bee:memory` |
+| View/manage memory — global user.md + per-spec memory.md | `/bee:memory` |
 | Commit changes | `/bee:commit` |
 | Full spec completion ceremony | `/bee:complete-spec` |
 | Quick archive (skip ceremony) | `/bee:archive-spec` |
@@ -226,10 +238,17 @@ Proactively suggest these when conditions are met -- don't wait for the user to 
 
 ### Workflow Efficiency
 - IF all phases planned: suggest `/bee:ship` or `/bee:autonomous` over manual per-phase
-- IF multiple unrelated tasks: suggest `/bee:workspace` for parallel worktrees
+- IF multiple unrelated tasks: suggest `/bee:workspace` for ad-hoc parallel worktrees; suggest `/bee:spec promote` when the second track already has an active spec with a plan
+- IF a second spec is about to execute while another is running in-place: `/bee:execute-phase` auto-offers promote/queue/pause — promote creates a dedicated worktree, queue defers, pause halts the current spec
 - IF long session with growing context: mention `/bee:compact` preserves bee state
 - IF end of day: suggest `/bee:eod` for integrity check
-- IF spec complete: suggest `/bee:complete-spec` (full ceremony) over bare `/bee:archive-spec`
+- IF spec complete AND it lives in a promoted worktree (location != in-place): suggest `/bee:workspace complete spec-<slug>` FIRST (merges code + state back in-place, removes the worktree), THEN `/bee:complete-spec`. NEVER send a promoted spec straight to `/bee:complete-spec` — its code is stranded on `bee/spec/<slug>`.
+- IF spec complete AND location is in-place: suggest `/bee:complete-spec` (full ceremony) over bare `/bee:archive-spec`
+- IF 2+ active specs and the user asks for status/overview ("what are my specs", "where am I", "what's active", "ce spec-uri am"): suggest `/bee:spec list` (quick roster), or `/bee:spec dashboard` when any spec is promoted to a worktree (shows in-place vs worktree topology + merge commands).
+- IF the user wants to begin another feature while one is executing: `/bee:new-spec` queues a 2nd spec (the prior stays active & untouched); switch with `/bee:spec use`, or build both at once with `/bee:spec promote`.
+
+### Memory Capture
+- IF the user states a durable constraint / pattern / invariant / gotcha scoped to the CURRENT feature (one active spec): offer `/bee:memory` → spec memory (`.bee/specs/<slug>/memory.md`, auto-injected into agents working on this spec). IF the rule is project-wide, use global user.md instead.
 
 ### Idea Capture
 - IF user mentions "later" or a tangent: suggest `/bee:seed` with trigger conditions

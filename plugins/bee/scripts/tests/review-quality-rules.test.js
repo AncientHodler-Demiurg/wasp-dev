@@ -72,38 +72,51 @@ if (skillContent) {
 }
 
 // ============================================================
-// Test 3: Bug Detector quality rules in review.md
+// Test 3: Bug Detector quality rules on review.md's path (engine-owned since v4.7)
+// review.md's agent prompts live in the shared review-pipeline engine; the
+// contract is: engine carries the rules AND review.md routes through the engine.
 // ============================================================
-console.log('\nTest 3: Bug Detector quality rules in review.md');
+console.log('\nTest 3: Bug Detector quality rules on review.md path (review-pipeline engine)');
+const ENGINE_PATH = path.join(PLUGIN_DIR, 'skills', 'review-pipeline', 'SKILL.md');
+const engineContent = readFile(ENGINE_PATH);
 const reviewContent = readFile(REVIEW_CMD);
 assert(reviewContent !== null, 'review.md exists');
+assert(engineContent !== null, 'review-pipeline engine skill exists');
 assert(
-  reviewContent && reviewContent.includes('same-class completeness'),
-  'review.md Bug Detector prompt has same-class completeness instruction'
+  reviewContent && reviewContent.includes('skills/review-pipeline/SKILL.md'),
+  'review.md routes its review pipeline through the engine skill'
 );
 assert(
-  reviewContent && reviewContent.includes('edge case enumeration'),
-  'review.md Bug Detector prompt has edge case enumeration instruction'
+  engineContent && engineContent.includes('same-class completeness'),
+  'engine Bug Detector prompt has same-class completeness instruction'
 );
 assert(
-  reviewContent && reviewContent.includes('crash-path tracing'),
-  'review.md Bug Detector prompt has crash-path tracing instruction'
+  engineContent && engineContent.includes('edge case enumeration'),
+  'engine Bug Detector prompt has edge case enumeration instruction'
+);
+assert(
+  engineContent && engineContent.includes('crash-path tracing'),
+  'engine Bug Detector prompt has crash-path tracing instruction'
 );
 
 // ============================================================
-// Test 4: Pattern Reviewer quality rules in review.md
+// Test 4: Pattern Reviewer quality rules on review.md's path (engine-owned)
 // ============================================================
-console.log('\nTest 4: Pattern Reviewer quality rules in review.md');
+console.log('\nTest 4: Pattern Reviewer quality rules on review.md path (engine)');
 assert(
-  reviewContent && reviewContent.includes('Apply same-class completeness'),
-  'review.md Pattern Reviewer prompt has same-class completeness instruction'
+  engineContent && engineContent.includes('Apply same-class completeness'),
+  'engine Pattern Reviewer prompt has same-class completeness instruction'
 );
 
 // ============================================================
 // Test 5: Bug Detector quality rules in review-implementation.md
 // ============================================================
 console.log('\nTest 5: Bug Detector quality rules in review-implementation.md');
-const reviewImplContent = readFile(REVIEW_IMPL_CMD);
+let reviewImplContent = readFile(REVIEW_IMPL_CMD);
+// v4.7: engine-routed — agent prompts live in the shared engine.
+if (reviewImplContent && reviewImplContent.includes('skills/review-pipeline/SKILL.md')) {
+  reviewImplContent = reviewImplContent + (engineContent || '');
+}
 assert(reviewImplContent !== null, 'review-implementation.md exists');
 assert(
   reviewImplContent && reviewImplContent.includes('same-class completeness'),
@@ -191,7 +204,11 @@ assert(
 // Test 13: Bug Detector quality rules in ship.md
 // ============================================================
 console.log('\nTest 13: Bug Detector quality rules in ship.md');
-const shipContent = readFile(SHIP_CMD);
+let shipContent = readFile(SHIP_CMD);
+// v4.7: engine-routed — agent prompts live in the shared engine.
+if (shipContent && shipContent.includes('skills/review-pipeline/SKILL.md')) {
+  shipContent = shipContent + (engineContent || '');
+}
 assert(shipContent !== null, 'ship.md exists');
 assert(
   shipContent && shipContent.includes('same-class completeness'),

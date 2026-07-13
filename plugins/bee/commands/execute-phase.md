@@ -41,6 +41,41 @@ Check these guards in order. Stop immediately if any fails:
    "Phase {N} is already executed (status: {status}). Re-executing will re-run all incomplete tasks. Continue?"
    Wait for explicit confirmation before proceeding. If the user declines, stop.
 
+### Step: Resolve target spec
+
+See `skills/command-primitives/SKILL.md` Spec Resolver (action: `execute`). The execute-time guard below advances the stage to `executing`.
+
+### Step: Execute-time guard (concurrency offer)
+
+Before executing, check whether another spec is already executing in-place. This keeps "at most one in-place execution at a time" safe **without ever blocking** the user.
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js guard --bee .bee --slug {target-slug}
+```
+
+Parse the JSON `{ "conflict": bool, "other": slug|null, "claimed": bool }`.
+
+- **`conflict` is false** → the target has been atomically CLAIMED (advanced to `executing` in the registry); proceed to wave execution normally. (This is the common case: single spec, or the only executing spec is this one, or this spec is already in a worktree.)
+- **`conflict` is true** → another spec (`{other}`) is executing in-place; the target was NOT claimed. Offer (never auto-decide):
+
+  ```
+  AskUserQuestion(
+    question: "Spec '{other}' is already executing in-place. How do you want to run '{target-slug}'?",
+    options: [
+      "Promote '{target-slug}' to a worktree (Recommended)",
+      "Keep '{target-slug}' queued (don't execute now)",
+      "Pause '{other}' first",
+      "Custom"
+    ]
+  )
+  ```
+
+  - **Promote (Recommended):** run `/bee:spec promote {target-slug}`, then tell the user to `cd` into the new worktree and re-run `/bee:execute-phase` there. Do NOT execute in-place now. Stop. (Target was NOT claimed — it remains at its prior stage.)
+  - **Keep queued:** stop before wave execution; the spec stays planned/queued, with no stale `executing` entry in the registry. Tell the user it will wait. Stop.
+  - **Pause '{other}':** (a) sync the registry: `node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js set-stage --bee .bee --slug {other} --stage planning`; (b) set `{other}`'s currently-EXECUTING phase back to `PLANNED` in its per-spec STATE.md (so it is no longer "executing"); (c) RE-RUN the guard for `{target-slug}`: `node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js guard --bee .bee --slug {target-slug}` — now there is no conflict, so the guard atomically claims `{target-slug}` (advances it to `executing`); then proceed to wave execution.
+
+The guard never hard-stops — every branch leaves the user a way forward.
+
 ### Step 1b: Parse Arguments
 
 Check `$ARGUMENTS` for the `--no-aggregate-validate` flag:
@@ -157,33 +192,10 @@ For each wave starting from the resume point, repeat the following:
 
 **5a. Build context packets for pending tasks in this wave:**
 
-For each pending `[ ]` task in the current wave, assemble a context packet. The packet is the sole input the implementer agent receives -- it must be self-contained.
+The wave-execution core lives in `skills/wave-execution/SKILL.md` — load it now if not already loaded. Manifest for every referenced section: `$TASKS_PATH` = this phase's TASKS.md; `$PACKET_EXTRAS` = `learnings` + `inline-cache`; `$IMPLEMENTATION_MODE` from config.
 
-Include in each context packet:
-- **Task identity:** Task ID (e.g., T1.3) and full description line from TASKS.md
-- **Acceptance criteria:** The task's `acceptance:` field verbatim -- this is what the SubagentStop hook validates
-- **Research notes:** The task's `research:` field -- patterns, reusable code, framework docs
-- **Context file paths:** The task's `context:` field -- list of file paths for the agent to read at runtime. Include paths only, NOT file contents (agents read files within their own context window)
-- **Dependency notes (Wave 2+ only):** Read the task's `needs:` field to find dependency task IDs. Look up each dependency task in TASKS.md and include its `notes:` section content. This is how completed Wave 1 work flows to Wave 2 agents.
-- **Stack resolution (conductor-side):** Before assembling each task's packet, the conductor resolves which stack(s) the task touches. This is the conductor's pre-read step — the agent does NOT re-read stack skill files itself; see the next bullet for the inline-injection contract.
-
-  1. **Read config:** Check `.bee/config.json`. If `config.stacks` exists, use it. If `config.stacks` is absent (v2 config), treat `config.stack` as a single-entry stacks array: `[{ "name": config.stack, "path": "." }]`.
-
-  2. **Single-stack fast path:** If the stacks array has exactly one entry, skip path-overlap logic entirely. The single stack is the resolved match for every task.
-
-  3. **Multi-stack path overlap:** When the stacks array has more than one entry, compare each stack's `path` value against the file paths listed in the task's `context:` and `research:` fields. A file matches a stack if the file path starts with (or is within) the stack's `path` value. A stack with `path` set to `"."` matches everything. Collect all stacks that have at least one matching file.
-
-  4. **Resolution result:**
-     - If one or more stacks matched by path overlap → the conductor inlines those stacks' skill content under per-stack subsections in the packet (next bullet).
-     - If NO files overlap any specific stack path (or the task has no `context:` / `research:` files) → all stacks are auto-included as a fallback for inlining.
-- **Stack Skill (inline):** The conductor pre-reads stack skill + .bee/CONTEXT.md + .bee/user.md ONCE per phase entry and inlines their content verbatim into each packet. See `skills/command-primitives/SKILL.md` Context Cache + Dependency Scan.
-
-  **Multi-stack handling:** for each task, the conductor uses the path-overlap resolution from the previous "Stack resolution" bullet. For each resolved stack, the conductor inlines that stack's skill content under a per-stack subsection inside the single `## Stack Skill (inline)` parent section. Subsection headings use the format `### Stack: {stack-name}` so multiple matched stacks coexist under one top-level marker. CONTEXT.md and user.md are inlined ONCE per packet under their own top-level inline sections (`## CONTEXT.md (inline)`, `## user.md (inline)`) since they are not per-stack files.
-
-  **Empty-stacks fallback:** when zero stacks match a task's files, emit `## Stack Skill (inline)` section with body `*No matching stack — please read .bee/config.json and follow ## 1. Read Stack Skill instructions in your agent file.*` (preserves implementer.md fallback path documented at lines 14-20).
-
-  **Idempotent across phase resumes (NFR-04):** re-running execute-phase reads the same files and produces identical inlined content; no duplication or accumulation occurs because packets are rebuilt per-wave entry, not persisted across waves.
-- **TDD instruction:** "Follow TDD cycle: RED (write failing tests first), GREEN (minimal implementation to pass), REFACTOR (clean up with tests as safety net). Write structured Task Notes in your final message under a `## Task Notes` heading."
+1. See `skills/wave-execution/SKILL.md` Context Packet Assembly.
+2. See `skills/wave-execution/SKILL.md` Stack Resolution (Path Overlap). Delivery mode: `inline-cache` — the conductor pre-reads stack skill + .bee/CONTEXT.md + .bee/user.md ONCE per phase entry per `skills/command-primitives/SKILL.md` Context Cache + Dependency Scan and inlines them into each packet (per-stack `### Stack: {stack-name}` subsections; empty-stacks fallback; idempotent across resumes per NFR-04).
 - **Phase Learnings (if available):** Before building context packets for the first wave, check for active LEARNINGS.md files from recent phases. Active learnings are those whose "Expires after" phase number is greater than or equal to the current phase number.
 
   **Discovery:**
@@ -218,11 +230,7 @@ Include in each context packet:
 
   Store the learnings content as `$PHASE_LEARNINGS` for reuse across all context packets in the phase (read once, inject into every task).
 
-**Model tier resolution (implementation_mode):** Read `config.implementation_mode` from `.bee/config.json` (defaults to `"premium"` if the field is absent). This determines which model tier the implementer agents receive:
-- **economy** mode: pass `model: "sonnet"` -- faster and cheaper, suitable when tasks are straightforward or the user opts for speed over depth
-- **quality or premium** mode (default): omit the model parameter (agents inherit the parent model) -- full reasoning capability for production code
-
-Store the resolved model tier for use in Step 5b when spawning agents.
+3. See `skills/wave-execution/SKILL.md` Model Resolution (Criticality-Routed). Store the resolved model tier (per task, when the mode is criticality-routed) for use in Step 5b when spawning agents.
 
 Keep each context packet to approximately 30% of context window. Phase learnings add ~2-5% context overhead -- this is acceptable and within budget. Include file paths for the agent to read at runtime, not file contents.
 
@@ -230,34 +238,15 @@ Keep each context packet to approximately 30% of context window. Phase learnings
 
 **5b. Spawn parallel implementer agents:**
 
-**Agent resolution (stack-specific fallback):** Before spawning each implementer, resolve whether a stack-specific implementer exists. Use the stack(s) resolved in Step 5a for the task. For multi-stack tasks, use the primary (first-matched) stack for agent resolution.
-
-Check if `agents/stacks/{stack.name}/implementer.md` exists. If yes, use `{stack.name}-implementer` as the agent name. If no, fallback to the generic `implementer` agent. Generic agents remain the default for stacks without dedicated stack-specific agents.
-
-**Live progress -- TaskUpdate in-progress:** Before spawning agents, call TaskUpdate to set ALL pending tasks in the wave to in-progress status in a single batch. Since all agents in the wave are spawned simultaneously, all tasks transition to in-progress at the same time.
-
-Spawn ALL pending tasks in the current wave simultaneously using the Task tool. Each task becomes one parallel agent invocation:
-
-- Agent: resolved agent name (stack-specific `{stack.name}-implementer` if available, otherwise generic `implementer`)
-- Model: use the resolved model from Step 5a's implementation_mode logic. In economy mode, pass `model: "sonnet"`. In quality or premium mode, omit (inherit parent model).
-- Context: the assembled context packet for that task
-- Each agent runs independently in its own context window
-
-CRITICAL: Spawn all agents in the wave at the same time using simultaneous Task tool calls. Do NOT wait for one agent to finish before spawning the next. Sequential spawning defeats wave parallelism.
-
-The SubagentStop hook in hooks.json fires automatically when each implementer agent completes. It validates TDD compliance, test passing, and task notes presence. If validation fails, the hook gives the agent a chance to self-correct before the conductor receives the result.
+See `skills/wave-execution/SKILL.md` Spawn (Parallel Implementers).
+(Covers agent resolution with stack-specific fallback, TaskUpdate in-progress batching, simultaneous Task tool spawning with the per-task resolved model, and the SubagentStop hook note. The TaskCreate live-progress calls from Step 5a's reference are part of the same section.)
 
 **5c. Collect results and handle outcomes per agent:**
 
 As each implementer agent completes, process its result:
 
 **On success (agent completed with task notes):**
-1. Read current TASKS.md from disk (fresh Read -- another agent's result may have updated it)
-2. Extract the task notes from the agent's final response (the `## Task Notes` section)
-3. Change the task's `[ ]` to `[x]` in TASKS.md
-4. Write the extracted task notes into the task's `notes:` section in TASKS.md
-5. Write updated TASKS.md to disk
-6. Call TaskUpdate to mark the task as completed
+See `skills/wave-execution/SKILL.md` Success Handling (TASKS.md Choreography).
 
 **On failure (agent did not complete successfully):**
 1. FIRST check the agent's output for a `BLOCKED:` prefix. If present, this is a Rule 4 architectural stop, NOT a failure. Route to Step 5c.5 immediately -- do NOT enter retry logic.

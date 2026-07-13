@@ -21,7 +21,8 @@ State is tracked on disk in the `.bee/` directory within the user's project:
 - `STATE.md` -- current spec, phase progress, decisions log, last action
 - `TASKS.md` -- per-phase execution contract with tasks, waves, acceptance criteria, research notes, agent notes
 - `config.json` -- project configuration (stacks, linter, test runner, CI, review settings)
-- `memory/` -- per-agent persistent knowledge files
+- `user.md` -- global persistent memory injected into every agent
+- `specs/<slug>/memory.md` -- per-spec memory injected while that spec is the single active one
 - `PROJECT.md` -- auto-generated codebase index
 
 ## Commands
@@ -51,21 +52,21 @@ Agents are Markdown files in `agents/` with YAML frontmatter and structured inst
 
 - `name:` -- agent identifier, kebab-case (required)
 - `description:` -- one-line summary (required)
-- `tools:` -- comma-separated list of tools the agent can use (required)
+- `tools:` -- comma-separated list of tools the agent can use (required, EXCEPT for inherit-all agents). Agents that must call per-install-named MCP tools (currently `researcher` and `phase-planner`, which call the per-install Context7 tool) OMIT `tools:` entirely so they inherit all tools. Agent `tools:` frontmatter has no wildcard support, and the Context7 MCP tool name varies per install, so inherit-all is the only name-agnostic mechanism that keeps the per-install tool callable. Do not re-add a hardcoded `tools:` line to these agents.
 - `color:` -- terminal color for the agent's output (required)
 - `model:` -- always `inherit` (the conductor overrides at spawn time) (required)
 - `skills:` -- YAML block sequence of skill names to load (required)
 
 ### Read-only vs write-capable agents
 
-Read-only agents (bug-detector, pattern-reviewer, stack-reviewer, plan-compliance-reviewer, finding-validator, integrity-auditor, test-auditor, plan-reviewer, project-reviewer) only have `Read, Glob, Grep` and optionally MCP tools. They analyze code but never create or modify files. Their output is structured findings in a defined format.
+Read-only agents (bug-detector, pattern-reviewer, stack-reviewer, plan-compliance-reviewer, finding-validator, integrity-auditor, test-auditor, plan-reviewer, project-reviewer) only have `Read, Glob, Grep`, optionally MCP tools, and the read-only `LSP` navigation tool (Rule 13 LSP-first navigation — a stack-reviewer must not flag the `LSP` token in these agents' allowlists). They analyze code but never create or modify files. Their output is structured findings in a defined format.
 
 Write-capable agents (implementer, fixer, researcher, spec-writer, phase-planner, spec-shaper, test-planner) have `Read, Write, Edit, Bash, Grep, Glob` and produce file changes or state updates.
 
 ### Conventions
 
 - Every agent begins with a "Read Stack Skill" step that reads config.json and the matching stack skill.
-- Agents that persist knowledge have a "Project Memory" section describing what to write to `.bee/memory/{agent-name}.md`.
+- Agents report findings and notes in structured output in their final message; conductors parse these and write to state files. Agents do not write memory files directly.
 - Instructions use numbered steps for the workflow.
 - Each agent ends with IMPORTANT notices (block capital) that enforce constraints. Read-only agents always end with notices like "You do NOT modify code. You are read-only."
 - Agents report structured output in their final message (task notes, fix reports, findings sections) that the conductor parses.
@@ -204,6 +205,16 @@ $ grep -c "up to 5 validators" plugins/bee/commands/review.md
 
 Pasted in task notes as evidence. No file created. This is sufficient TDD evidence for the SubagentStop hook on prose-only tasks.
 
+### Test-grain rule (what a test may pin)
+
+The when-to-write rule above decides IF a test exists; this rule decides WHAT it may assert.
+
+**Meta-tests pin DURABLE CONTRACTS — never incidental prose.** Durable contracts are the things a future legitimate edit must consciously preserve: cross-file invariants (a heading consumers grep, a roster both producer and consumer read), output-structure behaviors (section headings agents emit, exit codes scripts return, load-bearing status tokens), and named-constant rosters. Never pin: step counts ("Command has exactly 8 steps"), prose literals that survive only until the next reword, styling class names, model-name wording, round/iteration limits, or menu phrasing. Those assertions break on every healthy edit, which trains everyone to ignore failures — that is exactly how a red suite stops meaning anything.
+
+**Re-aiming chronic breakers:** when a suite breaks repeatedly on rewords, do not patch the literal — re-aim the assertion at the durable contract underneath (what would actually break a consumer if it changed?). If no durable contract exists under the pin — the test only ever asserted prose — DELETE the assertion or the suite; prefer zero tests over shallow tests.
+
+**Consolidation preference:** paired-contract assertions belong in the canonical roster suite (`command-primitives.test.js` `*_COMMANDS` rosters, per case 1 above), not in new one-off files.
+
 ### Plain-Node test pattern (for the cases above where a test file IS warranted)
 
 ```js
@@ -231,6 +242,18 @@ process.exit(failed > 0 ? 1 : 0);
 
 Test files live in `scripts/tests/`. Run individually: `node plugins/bee/scripts/tests/{filename}.test.js`. (`/bee:test` is the manual testing handoff, not a unit-test orchestrator.)
 
+### Aggregate runner and the commit self-gate
+
+The full meta-suite runs through the aggregate runner — discovery is dynamic (`scripts/tests/*.test.js`, `scripts/*.test.js`, `scripts/tests/test-*.sh`), so new suites are picked up without registration:
+
+```bash
+node plugins/bee/scripts/run-meta-tests.js                  # full run (exit 1 = non-baselined FAIL)
+node plugins/bee/scripts/affected-suites.js --root . {changed-paths...} \
+  | node plugins/bee/scripts/run-meta-tests.js --root . --subset-stdin   # affected subset
+```
+
+Commits on the bee repo are gated: pre-commit-gate.sh maps staged paths to affected suites and BLOCKS on any non-baselined FAIL (baselined failures and budget skips warn-and-allow; tooling failures fail open). After editing commands/agents/skills or scripts, run the affected subset BEFORE finishing the task — a gate block at commit time means this step was skipped. The known-failing baseline (`scripts/meta-test-baseline.txt`) ratchets DOWN only: `--generate` refuses new additions without `--force`. Never add a failing suite to the baseline to get past the gate — fix the suite or re-aim it per the test-grain rule above.
+
 ## Must-Haves
 
 - Read-only agents (reviewers, detectors, validators, auditors) must not write code -- their tools list excludes Write, Edit, and Bash (except when Bash is needed for read-only operations). Agents must not create or modify source files.
@@ -244,7 +267,7 @@ Test files live in `scripts/tests/`. Run individually: `node plugins/bee/scripts
 
 ## Good Practices
 
-- Maintain consistent frontmatter format across all commands, agents, and skills. Commands use `description:` and `argument-hint:`. Agents use `name:`, `description:`, `tools:`, `color:`, `model:`, `skills:`. Skills use `name:`, `description:`.
+- Maintain consistent frontmatter format across all commands, agents, and skills. Commands use `description:` and `argument-hint:`. Agents use `name:`, `description:`, `tools:`, `color:`, `model:`, `skills:`. Skills use `name:`, `description:`. Exception: `tools:` is omitted from agents that must call per-install-named MCP tools (currently `researcher` and `phase-planner`) so they inherit all tools — agent `tools:` frontmatter has no wildcard support and the per-install Context7 tool name is not known ahead of time, so inherit-all is the only name-agnostic mechanism. A stack-reviewer must not flag these agents for the missing `tools:` line, nor re-add a hardcoded one.
 - Use numbered steps in agent instructions for clear workflow sequencing. Steps like "1. Read Stack Skill", "2. Understand Your Task", "3. TDD Cycle" give agents a deterministic path to follow.
 - Context packets assembled by conductors include file paths, not file contents. Agents read files within their own context window at runtime. This keeps conductor context lean (~30% of agent window per task).
 - Apply progressive disclosure in skills: most important conventions first, detailed patterns next, edge cases and gotchas last. This mirrors how agents consume information -- they need the rules before the examples.

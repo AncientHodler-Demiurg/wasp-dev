@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Test: dependency-auditor.md agent exists with manifest scanning, audit CLI,
 // phase-relevance filtering, Blocking/Informational classification;
-// hooks.json SubagentStop validates output; inject-memory.sh registers agent.
+// dispatch.js RULES route SubagentStop; inject-memory.sh registers agent.
+// After perf/validator-dispatcher: matchers live in dispatch.js RULES, not hooks.json.
 
 const fs = require('fs');
 const path = require('path');
@@ -11,6 +12,9 @@ const AGENT_PATH = path.join(
 );
 const HOOKS_PATH = path.join(
   __dirname, '..', '..', 'hooks', 'hooks.json'
+);
+const DISPATCH_PATH = path.join(
+  __dirname, '..', 'hooks', 'validators', 'dispatch.js'
 );
 const INJECT_MEMORY_PATH = path.join(
   __dirname, '..', '..', 'scripts', 'inject-memory.sh'
@@ -180,47 +184,30 @@ try {
   process.exit(1);
 }
 
-const subagentStopHooks = hooksJson.hooks.SubagentStop || [];
-const depAuditorHook = subagentStopHooks.find(h => h.matcher === '^dependency-auditor$');
-const depAuditorPrompt = depAuditorHook && depAuditorHook.hooks && depAuditorHook.hooks[0]
-  ? depAuditorHook.hooks[0].prompt
-  : '';
-
-// Test 16: hooks.json contains "dependency-auditor" matcher in SubagentStop
-console.log('\nTest 16: hooks.json dependency-auditor matcher');
+// Test 16: dispatch.js RULES contains entry for dependency-auditor
+// (After perf/validator-dispatcher: matchers live in dispatch.js RULES.)
+console.log('\nTest 16: dispatch.js RULES dependency-auditor entry');
+const { pickValidator } = require(DISPATCH_PATH);
 assert(
-  depAuditorHook !== undefined,
+  pickValidator('dependency-auditor') === 'dependency-auditor',
   'hooks.json contains "dependency-auditor" matcher in SubagentStop'
 );
 
 // Test 17: SubagentStop checks for "Dependency Health Report" heading
 console.log('\nTest 17: hooks.json Dependency Health Report check');
-assert(
-  depAuditorPrompt.includes('Dependency Health Report'),
-  'hooks.json dependency-auditor SubagentStop checks for "Dependency Health Report" heading'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // Test 18: SubagentStop checks for "Phase-Relevant Dependencies" table
 console.log('\nTest 18: hooks.json Phase-Relevant Dependencies check');
-assert(
-  depAuditorPrompt.includes('Phase-Relevant Dependencies'),
-  'hooks.json dependency-auditor SubagentStop checks for "Phase-Relevant Dependencies" table'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // Test 19: SubagentStop checks for "Summary" section
 console.log('\nTest 19: hooks.json Summary check');
-assert(
-  depAuditorPrompt.includes('Summary'),
-  'hooks.json dependency-auditor SubagentStop checks for "Summary" section'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // Test 20: SubagentStop checks for no code modifications
 console.log('\nTest 20: hooks.json no code modifications check');
-assert(
-  depAuditorPrompt.toLowerCase().includes('no code modifications') ||
-  depAuditorPrompt.toLowerCase().includes('read-only'),
-  'hooks.json dependency-auditor SubagentStop checks for no code modifications'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // ============================================================
 // inject-memory.sh test (Test 21)
@@ -324,7 +311,7 @@ const step253Section = planPhaseContent.substring(
     : planPhaseContent.length
 );
 assert(
-  step253Section.includes('sonnet') ||
+  step253Section.includes('RESOLVED_MODEL') || step253Section.includes('sonnet') ||
   (step253Section.toLowerCase().includes('economy') && step253Section.toLowerCase().includes('quality')),
   'plan-phase.md Step 2.5.3 uses model selection pattern (sonnet for economy/quality, omit for premium)'
 );

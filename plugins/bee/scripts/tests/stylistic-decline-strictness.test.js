@@ -38,6 +38,20 @@ function readFile(p) {
   }
 }
 
+// v4.7: commands that route their review pipeline through the shared engine
+// (skills/review-pipeline/SKILL.md) carry the extractor/producer text there.
+// The effective content of such a command is command + engine — the contract
+// is pinned on the execution path, wherever the prose lives.
+const ENGINE_MD = readFile(
+  path.join(COMMANDS_DIR, '..', 'skills', 'review-pipeline', 'SKILL.md')
+) || '';
+function effectiveContent(raw) {
+  if (raw && raw.includes('skills/review-pipeline/SKILL.md')) {
+    return raw + ENGINE_MD;
+  }
+  return raw;
+}
+
 // Named-constant inventory pattern: iterating a single list lets every command
 // be checked uniformly, and adding/removing a command requires editing only
 // this constant.
@@ -51,7 +65,7 @@ console.log('=== D6 STYLISTIC-decline strictness + cross-command parity ===');
 
 // Strictness assertions (3 -- one per command, iterating named constant).
 for (const cmd of STYLISTIC_DECLINE_COMMANDS) {
-  const content = readFile(path.join(COMMANDS_DIR, cmd));
+  const content = effectiveContent(readFile(path.join(COMMANDS_DIR, cmd)));
 
   // Each command must document that REAL BUG candidates are NOT suppressed by
   // stylistic-declined entries. The wording is allowed to vary slightly across
@@ -72,8 +86,8 @@ console.log(
   '\n=== Per-site assertions (6 -- producer + extractor per command) ==='
 );
 
-const reviewMd = readFile(path.join(COMMANDS_DIR, 'review.md'));
-const reviewImplMd = readFile(path.join(COMMANDS_DIR, 'review-implementation.md'));
+const reviewMd = effectiveContent(readFile(path.join(COMMANDS_DIR, 'review.md')));
+const reviewImplMd = effectiveContent(readFile(path.join(COMMANDS_DIR, 'review-implementation.md')));
 const swarmReviewMd = readFile(path.join(COMMANDS_DIR, 'swarm-review.md'));
 
 const CANONICAL_PERSISTENCE =
@@ -121,19 +135,19 @@ assert(
 
 console.log('\n=== Re-extraction site assertion (1) ===');
 
-// Re-extraction site: review.md Step 7.2 references Step 3.9 dual-mode parse.
-// Scope to the Step 7.2 section so prose mentioning "Step 7.2" elsewhere
-// (e.g., Step 7.3's "refreshed false-positives list from Step 7.2") cannot
-// satisfy the assertion. Anchor on the actual subsection heading shape
-// (`#### 7.2:` or `### Step 7.2`).
-const step72Match = reviewMd.match(
-  /(?:^|\n)#{3,4}\s*(?:Step\s*)?7\.2[\s\S]*?(?=\n#{3,4}\s)/i
+// Re-extraction site: the re-review loop (engine "Re-Review Loop" section since
+// v4.7; formerly review.md Step 7.2) must re-run the dual-mode FP extraction so
+// stylistic-declined entries persisted in iteration N take effect in N+1.
+const loopMatch = reviewMd.match(
+  /## Re-Review Loop[\s\S]*?(?=\n## |$)/
 );
-const step72Content = step72Match ? step72Match[0] : '';
+const loopContent = loopMatch ? loopMatch[0] : '';
 
 assert(
-  /Step 3\.9|dual-mode|stylistic-decline/i.test(step72Content),
-  'review.md Step 7.2 re-extraction references Step 3.9 dual-mode parsing'
+  /False-Positive Extraction/.test(loopContent) &&
+    /stylistic-declined/i.test(loopContent) &&
+    /iteration N\+1|take effect in iteration/i.test(loopContent),
+  'review.md re-review loop re-runs dual-mode FP extraction (stylistic-declines take effect next iteration)'
 );
 
 console.log(`\nResults: passed=${passed} failed=${failed}`);

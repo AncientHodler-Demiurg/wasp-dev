@@ -54,9 +54,13 @@ Read and extract the following from the files above:
 - `git diff --stat` -- count of uncommitted files
 - `git branch --show-current` -- current branch
 
-### Step 3: Write `.bee/COMPACT-CONTEXT.md`
+### Step 3: Write COMPACT-CONTEXT.md
 
-Write a concise context file to `.bee/COMPACT-CONTEXT.md` using the Write tool. This file persists on disk and can be read by `/bee:resume`, the PreCompact hook, or any new session.
+Determine the write path for COMPACT-CONTEXT.md:
+- If a spec is currently active (Current Spec Path is not `(none)` and Current Spec Status is not `NO_SPEC`): write to `.bee/specs/<slug>/COMPACT-CONTEXT.md` where `<slug>` is the basename of the Current Spec Path (e.g. if Path is `.bee/specs/2026-06-15-my-feature/`, the slug is `2026-06-15-my-feature`).
+- Otherwise: write to `.bee/COMPACT-CONTEXT.md` (global, no active spec).
+
+Write a concise context file to the path determined above using the Write tool. This file persists on disk and can be read by `/bee:resume`, the PreCompact hook, or any new session.
 
 Format:
 
@@ -113,7 +117,7 @@ After writing the file, output the same content directly in the conversation as 
 Display:
 
 ```
-Bee context saved to .bee/COMPACT-CONTEXT.md
+Bee context saved to {the path determined in Step 3} (saved to .bee/specs/<slug>/COMPACT-CONTEXT.md if spec active, otherwise .bee/COMPACT-CONTEXT.md)
 
 --- BEE CONTEXT (preserved across compact) ---
 
@@ -137,7 +141,7 @@ Key decisions:
 Metrics: {count} phases tracked, velocity {trend}
 
 {If CONTEXT.md was found in Step 2:}
-Codebase context: saved in .bee/COMPACT-CONTEXT.md (not repeated here to avoid inflating context before compaction)
+Codebase context: saved in {the path determined in Step 3} (not repeated here to avoid inflating context before compaction)
 
 Next step: /bee:{suggested command} -- {reason}
 --- END BEE CONTEXT ---
@@ -149,7 +153,7 @@ Display:
 
 ```
 Your bee context is saved in:
-- .bee/COMPACT-CONTEXT.md (on disk, survives session crashes)
+- {the path determined in Step 3} (on disk, survives session crashes)
 - The message above (in conversation, survives compaction summary)
 
 After compacting, run /bee:resume if you need a full briefing.
@@ -165,7 +169,7 @@ AskUserQuestion(
 ```
 
 - **Compact now**: Display "Run `/compact` to compress the conversation." Do NOT attempt to invoke `/compact` programmatically — it is a built-in CLI command that must be run by the user.
-- **Save snapshot only**: Display "Snapshot saved to `.bee/COMPACT-CONTEXT.md`. Conversation not compacted — you can continue working." Stop.
+- **Save snapshot only**: Display "Snapshot saved to {the path determined in Step 3}. Conversation not compacted — you can continue working." Stop.
 - **Custom**: Free text
 
 Stop here.

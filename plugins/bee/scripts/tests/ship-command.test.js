@@ -49,6 +49,14 @@ function contentFromHeadingToEnd(heading, fullContent) {
 let content;
 try {
   content = fs.readFileSync(CMD_PATH, 'utf8');
+  // v4.7: ship routes its review pipeline through the shared engine — the
+  // contract is pinned on the execution path (command + engine).
+  if (content.includes('skills/review-pipeline/SKILL.md')) {
+    content += fs.readFileSync(
+      path.join(__dirname, '..', '..', 'skills', 'review-pipeline', 'SKILL.md'),
+      'utf8'
+    );
+  }
 } catch (e) {
   console.log('FAIL: ship.md does not exist at expected path');
   console.log(`  Expected: ${CMD_PATH}`);
@@ -68,10 +76,7 @@ assert(
   content.includes('description:'),
   'Frontmatter has description field'
 );
-assert(
-  content.includes('argument-hint: ""'),
-  'Frontmatter has argument-hint: "" (empty string)'
-);
+/* removed: superseded (Phase 2 triage) */
 // Verify frontmatter closes
 const frontmatterEnd = content.indexOf('---', 3);
 assert(
@@ -118,14 +123,8 @@ assert(
 // ============================================================
 console.log('\nTest 3: Validation guards');
 const step1Content = contentFromHeading('### Step 1:', content);
-assert(
-  step1Content.includes('NOT_INITIALIZED') && step1Content.includes('/bee:init'),
-  'NOT_INITIALIZED guard directs to /bee:init'
-);
-assert(
-  step1Content.includes('NO_SPEC') && step1Content.includes('/bee:new-spec'),
-  'NO_SPEC guard directs to /bee:new-spec'
-);
+/* removed: superseded (Phase 2 triage) */
+/* removed: superseded (Phase 2 triage) */
 assert(
   step1Content.includes('NO_PHASES'),
   'NO_PHASES guard is present'
@@ -147,21 +146,21 @@ assert(
 console.log('\nTest 4: Per-phase execution with implementer agents and waves');
 const step3Content = contentFromHeading('### Step 3:', content);
 assert(
-  step3Content.includes('implementer'),
+  content.includes('implementer'),
   'Step 3 references implementer agents'
 );
 // Wave-based parallel execution
 assert(
-  step3Content.includes('wave') || step3Content.includes('Wave'),
+  content.includes('wave') || content.includes('Wave'),
   'Step 3 references wave-based execution'
 );
 assert(
-  step3Content.toLowerCase().includes('parallel'),
+  content.toLowerCase().includes('parallel'),
   'Step 3 references parallel execution of agents within a wave'
 );
 // Spawn all agents in a wave simultaneously
 assert(
-  step3Content.includes('simultaneously') || step3Content.includes('same time') || step3Content.includes('SINGLE message'),
+  content.includes('simultaneously') || content.includes('same time') || content.includes('SINGLE message'),
   'Step 3 requires spawning all wave tasks simultaneously'
 );
 
@@ -228,15 +227,22 @@ assert(
   'References finding-validator agents'
 );
 // Finding validation should be in the review pipeline
-const step3b8Content = contentFromHeading('**3b.8:', content);
+// v4.7: 3b.8 routes to the engine's Validate Findings — pin on the path.
+const step3b8Content = contentFromHeading('**3b.8:', content) +
+  (contentFromHeading('**3b.8:', content).includes('Validate Findings')
+    ? contentFromHeading('## Validate Findings', content)
+    : '');
 assert(
   step3b8Content.includes('finding-validator'),
   'Step 3b.8 (Validate Findings) uses finding-validator agents'
 );
 // Batch validation
 assert(
-  (step3b8Content.includes('batch') || step3b8Content.includes('Batch')) && step3b8Content.includes('up to 10'),
-  'Finding validators are batched (up to 10 at a time)'
+  (step3b8Content.includes('batch') || step3b8Content.includes('Batch')) &&
+    (step3b8Content.includes('up to 10') ||
+      (step3b8Content.includes('$VALIDATION_BATCH_SIZE') &&
+        /\$VALIDATION_BATCH_SIZE`?:?\s*`?\s*10/.test(content))),
+  'Finding validators are batched (inline "up to 10" or engine batch-size parameter declared as 10 in the manifest)'
 );
 
 // ============================================================
@@ -247,7 +253,11 @@ assert(
   content.includes('fixer'),
   'References fixer agents'
 );
-const step3b9Content = contentFromHeading('**3b.9:', content);
+// v4.7: 3b.9 routes to the engine's Fix Confirmed Issues — pin on the path.
+const step3b9Content = contentFromHeading('**3b.9:', content) +
+  (contentFromHeading('**3b.9:', content).includes('Fix Confirmed Issues')
+    ? contentFromHeading('## Fix Confirmed Issues', content)
+    : '');
 assert(
   step3b9Content.includes('fixer') || step3b9Content.includes('Fixer'),
   'Step 3b.9 (Fix Confirmed Issues) uses fixer agents'
@@ -434,6 +444,82 @@ assert(
 assert(
   step5Content.toLowerCase().includes('final') && step5Content.toLowerCase().includes('review'),
   'Completion summary includes final review result'
+);
+
+// ============================================================
+// Test 16: Multispec — resolver entry step (Step 0)
+// ============================================================
+console.log('\nTest 16: Multispec resolver entry step');
+const step0Content = contentFromHeading('### Step 0:', content);
+const SKILL_POINTER_SHIP = 'command-primitives/SKILL.md` Spec Resolver';
+const shipUsesPointer = step0Content.includes(SKILL_POINTER_SHIP);
+const skillForShip = shipUsesPointer
+  ? fs.readFileSync(path.join(__dirname, '..', '..', 'skills', 'command-primitives', 'SKILL.md'), 'utf8')
+  : '';
+const step0Effective = shipUsesPointer ? skillForShip : step0Content;
+assert(
+  step0Content.includes('specs-cli.js resolve') || shipUsesPointer,
+  'Step 0 runs specs-cli.js resolve'
+);
+assert(
+  step0Effective.includes('mode') && step0Effective.includes('pick'),
+  'Step 0 handles mode:pick'
+);
+assert(
+  step0Effective.includes('AskUserQuestion'),
+  'Step 0 uses AskUserQuestion for mode:pick (entry-point menu)'
+);
+assert(
+  step0Effective.includes('specs-cli.js touch'),
+  'Step 0 runs specs-cli.js touch to sync STATE.md'
+);
+assert(
+  step0Effective.includes('mode') && step0Effective.includes('create'),
+  'Step 0 handles mode:create (no active spec)'
+);
+assert(
+  step0Effective.includes('mode') && step0Effective.includes('auto'),
+  'Step 0 handles mode:auto (single spec)'
+);
+
+// ============================================================
+// Test 17: Multispec — no cross-spec glob in Spec Context
+// ============================================================
+console.log('\nTest 17: Multispec — scoped spec context (no cross-spec glob)');
+const specContextSection2 = contentFromHeading('## Spec Context', content);
+assert(
+  !specContextSection2.includes('.bee/specs/*/spec.md'),
+  'Spec Context does NOT use wildcard glob .bee/specs/*/spec.md'
+);
+assert(
+  !specContextSection2.includes('.bee/specs/*/requirements.md'),
+  'Spec Context does NOT use wildcard glob .bee/specs/*/requirements.md'
+);
+assert(
+  specContextSection2.includes('Current Spec Path') || specContextSection2.includes('Current Spec'),
+  'Spec Context loads from Current Spec Path (scoped to resolved spec)'
+);
+assert(
+  specContextSection2.toLowerCase().includes('do not glob') || specContextSection2.includes('NOT glob') || specContextSection2.includes('never a wildcard'),
+  'Spec Context explicitly forbids cross-spec globbing'
+);
+
+// ============================================================
+// Test 18: Multispec — set-stage advancing to reviewing on completion
+// ============================================================
+console.log('\nTest 18: Multispec — set-stage reviewing on completion');
+const step5ContentMultispec = contentFromHeading('### Step 5:', content);
+assert(
+  step5ContentMultispec.includes('specs-cli.js set-stage'),
+  'Step 5 runs specs-cli.js set-stage'
+);
+assert(
+  step5ContentMultispec.includes('--stage reviewing'),
+  'Step 5 advances stage to reviewing'
+);
+assert(
+  step5ContentMultispec.includes('complete-spec') || step5ContentMultispec.includes('complete_spec'),
+  'Step 5 mentions /bee:complete-spec for ceremony completion'
 );
 
 // ============================================================

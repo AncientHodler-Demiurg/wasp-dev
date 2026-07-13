@@ -288,6 +288,7 @@ export interface Snapshot {
     learnings: { filePath: string; phaseNumber: string | null; phaseName: string; content: string }[] | null;
     reviews: { filePath: string; phaseNumber: string | null; phaseName: string; content: string }[] | null;
     archivedSpecs: ArchivedSpec[];
+    activeSpecs?: ActiveSpec[] | null;
     /** Present only when `buildSnapshot` caught an aggregation error. */
     error?: string;
 }
@@ -303,4 +304,17 @@ export interface ArchivedSpec {
     goal: string | null;
     phaseCount: number;
     dirName: string;
+}
+
+// ---------------------------------------------------------------------------
+// Active spec summary (multi-spec roster — Step 4 multispec-foundation)
+// ---------------------------------------------------------------------------
+
+export interface ActiveSpec {
+    slug: string;
+    title: string;
+    stage: string;
+    location: string;
+    last_touched: string | null;
+    inWorktree: boolean;
 }

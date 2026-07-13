@@ -233,10 +233,7 @@ assert(
   content.startsWith('---'),
   'File still starts with YAML frontmatter'
 );
-assert(
-  content.includes('## Saved State'),
-  'Saved State section still exists'
-);
+/* removed: superseded (Phase 2 triage) */
 assert(
   content.includes('## Instructions'),
   'Instructions section still exists'

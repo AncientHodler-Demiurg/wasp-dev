@@ -10,7 +10,7 @@ Read these files using the Read tool:
 - `.bee/config.json` — if not found: use `{}`
 - `.bee/PROJECT.md` — if not found: skip (project index not available)
 
-Read `config.implementation_mode` and store as `$IMPLEMENTATION_MODE`. If not set, defaults to `"premium"`. Valid values: `"economy"`, `"quality"`, `"premium"`. Per-agent model resolution follows the rule below.
+Read `config.implementation_mode` and store as `$IMPLEMENTATION_MODE`. If not set, defaults to `"premium"`. Valid values: `"economy"`, `"quality"`, `"premium"`, `"max-critical"`, `"max"` (max tiers per `skills/command-primitives/SKILL.md` Model Selection; unrecognized values behave as premium). Per-agent model resolution follows the rule below.
 
 See `skills/command-primitives/SKILL.md` Model Selection (Reasoning).
 Inputs: `$IMPLEMENTATION_MODE`. Apply to implementer / reviewer / validator agents.
@@ -44,6 +44,9 @@ What's the quick task? Describe what you want to do.
 ```
 
 Wait for the user's response. Store as `$DESCRIPTION`.
+
+See `skills/command-primitives/SKILL.md` Conversation Context Capture.
+Inputs: live chat after the most recent state-loading command. Apply: filter TIGHT against the single `$DESCRIPTION` (no feature-scope/per-task split — that two-stage shape is multi-task commands only); capture only context that changes this one task.
 
 ---
 
@@ -120,6 +123,9 @@ If "Cancel", stop. If "Proceed", continue. If "Edit scope", let user refine.
 ## Description
 {DESCRIPTION}
 
+## Conversation Context
+{Per `skills/command-primitives/SKILL.md` Conversation Context Capture, write the captured Decisions / Constraints / Ruled-out buckets here when non-empty. Silently omit this section entirely when all buckets are empty.}
+
 ## Acceptance Criteria
 {Derive 3-8 testable acceptance criteria from the task description. Each criterion should be a concrete, verifiable statement that the implementer can write a test for. Format as a numbered list.}
 
@@ -192,6 +198,9 @@ Task(
 
     Research the codebase to understand how to: {DESCRIPTION}
 
+    ## Prior Discussion
+    {Captured Conversation Context buckets filtered tight against {DESCRIPTION}, per `skills/command-primitives/SKILL.md` Conversation Context Capture. Omit this block when buckets are empty.}
+
     Project stack: {stack from config.json}
 
     Find:
@@ -238,6 +247,9 @@ Task(
   description="Implement (TDD): {DESCRIPTION}",
   prompt="
     Implement this task using TDD (Red-Green-Refactor): {DESCRIPTION}
+
+    ## Prior Discussion
+    {Captured Conversation Context buckets filtered tight against {DESCRIPTION}, per `skills/command-primitives/SKILL.md` Conversation Context Capture. Omit this block when buckets are empty.}
 
     Project stack: {stack from config.json}
     Linter: {resolved linter for this stack: stacks[i].linter ?? config.linter ?? "none"}
@@ -298,7 +310,7 @@ Replace `[X]` with the actual test count from the implementer's final message.
 
 **Skip this step if `$USE_REVIEW` is false AND the user did NOT explicitly select "Review" in the previous menu.** If the user selected "Review" — even without `--review` flag — execute this step (R6: when user selects an option, execute it).
 
-If `$USE_REVIEW` is true, run a review before committing. The review pipeline uses 4 agents when a plan file exists (TDD mode) or 3 agents when no plan file exists (fast mode).
+If `$USE_REVIEW` is true, run a review before committing. The review pipeline uses 4 agents when a plan file exists (TDD mode) or 3 agents when no plan file exists (fast mode). The engine lives in `skills/review-pipeline/SKILL.md` — load it now if not already loaded; the references below execute its sections with the manifest in 4.5.2.
 
 See `skills/command-primitives/SKILL.md` Build & Test Gate (Interactive).
 Run per-stack build then user-opt-in tests; on failure prompt the user via AskUserQuestion.
@@ -312,158 +324,48 @@ Run per-stack build then user-opt-in tests; on failure prompt the user via AskUs
 
 #### 4.5.1: Extract false positives
 
-Before spawning review agents, extract documented false positives so each agent can exclude known non-issues:
-
-1. Read `.bee/false-positives.md` using the Read tool.
-2. If the file exists, build a formatted false-positives list from its contents. Extract each `## FP-NNN` entry with its finding description, reason, and file reference. Format the list as:
-   ```
-   EXCLUDE these documented false positives from your findings:
-   - FP-001: {summary} ({file}, {reason})
-   - FP-002: {summary} ({file}, {reason})
-   ...
-   ```
-3. If the file does not exist, set the false-positives list to: `"No documented false positives."`
-4. This formatted list is included verbatim in each agent's context packet in Step 4.5.2.
+See `skills/review-pipeline/SKILL.md` False-Positive Extraction (Dual-Mode).
+Output: `$FP_LIST` — included verbatim in each agent's context packet in 4.5.2.
 
 #### 4.5.15: Context Cache
 
 See `skills/command-primitives/SKILL.md` Context Cache + Dependency Scan.
 Read-once cache only (no dependency scan in quick mode -- modified-file scope is too small to need expansion).
 
-#### 4.5.2: Build context packets and spawn four agents in parallel
+#### 4.5.2: Build context packets and spawn agents in parallel
 
-Build four agent-specific context packets. Each includes the changed files list, review mode instruction, and the false-positives list from Step 4.5.1.
+**Review pipeline manifest** (the parameters for EVERY `review-pipeline` section referenced in this review gate):
 
-**Model selection for review agents:** apply the Model Selection (Reasoning) rule referenced at the top of this file to every review agent below.
+- `$SCOPE`: `quick`
+- `$SCOPE_CONTEXT`: the changed-files list `$REVIEW_FILES` + `Project stack: {stack from config.json}`
+- `$OUTPUT_PATH`: `{review_output_path}` from 4.5.0
+- `$FP_LIST`: from 4.5.1
+- `$ROSTER_GLOBALS` **(flat roster — NOT per-stack):** quick spawns ONE flat agent set using the project's primary stack — `bee:bug-detector`, `bee:pattern-reviewer`, `bee:stack-reviewer`, plus `bee:plan-compliance-reviewer` ONLY in TDD mode (skip if `$USE_FAST` is true — no plan file exists). The plan-compliance packet checks the implementation against `{$PLAN_FILE}`'s `## Acceptance Criteria` section instead of a spec. No audit-bug-detector, no architecture-auditor (no TASKS.md — the gate cannot fire).
+- `$BATCH_VALIDATORS`: none
+- `$EXPECTED_COUNT`: 4 in TDD mode, 3 in fast mode
+- `$VALIDATION_BATCH_SIZE`: 5
+- `$ESCALATION`: off
+- `$STYLISTIC_MODE`: auto-confirm
+- `$LOOP`: off (re-review is offered via the post-review menu)
 
-**Agent 1: Bug Detector** (`bee:bug-detector` -- model per Model Selection (Reasoning))
-```
-QUICK REVIEW MODE -- No spec, no TASKS.md, no phase context.
+Execute with the manifest above:
 
-You are reviewing changed files for bugs and security issues.
-
-Review ONLY these changed files:
-{$REVIEW_FILES -- one per line}
-
-Project stack: {stack from config.json}
-
-{false-positives list from Step 4.5.1}
-
-SKIP these categories (no spec/phase context to evaluate):
-- Spec Compliance (no spec exists)
-- TDD Compliance (no acceptance criteria to check)
-
-Review these files for bugs, logic errors, null handling issues, race conditions, edge cases, and security vulnerabilities (OWASP). Report only HIGH confidence findings in your standard output format.
-
-Target 1-3 findings. Only report issues you have HIGH confidence in.
-```
-
-**Agent 2: Pattern Reviewer** (`bee:pattern-reviewer` -- model per Model Selection (Reasoning))
-```
-QUICK REVIEW MODE -- No spec, no TASKS.md, no phase context.
-
-You are reviewing changed files for pattern deviations against the existing codebase.
-
-Review ONLY these changed files:
-{$REVIEW_FILES -- one per line}
-
-{false-positives list from Step 4.5.1}
-
-Compare changed files against existing codebase patterns only. There is no spec to reference -- focus on whether the changed files follow the patterns already established in the project. For each file, find 2-3 similar existing files and compare.
-
-Target 1-3 findings. Only report deviations you have HIGH confidence in.
-```
-
-**Agent 3: Stack Reviewer** (`bee:stack-reviewer` -- model per Model Selection (Reasoning))
-```
-QUICK REVIEW MODE -- No spec, no TASKS.md, no phase context.
-
-You are reviewing changed files for stack best practice violations.
-
-Review ONLY these changed files:
-{$REVIEW_FILES -- one per line}
-
-Project stack: {stack from config.json}
-
-{false-positives list from Step 4.5.1}
-
-Check changed files against stack conventions only. Load the stack skill from config.json and verify all code follows the stack's conventions. Use Context7 to verify framework best practices.
-
-Target 1-3 findings. Only report violations you have HIGH confidence in.
-```
-
-**Agent 4: Plan Compliance Reviewer** (`bee:plan-compliance-reviewer` -- model per Model Selection (Reasoning)) -- **TDD mode only (skip if `$USE_FAST` is true)**
-
-This agent is spawned only when a plan file exists (TDD mode). It checks the implementation against the plan file's acceptance criteria.
-
-```
-You are reviewing a quick task implementation in CODE REVIEW MODE against the plan file's acceptance criteria.
-
-Plan file: {$PLAN_FILE}
-Read this file and extract the ## Acceptance Criteria section.
-
-Review ONLY these changed files:
-{$REVIEW_FILES -- one per line}
-
-Project stack: {stack from config.json}
-
-{false-positives list from Step 4.5.1}
-
-Check implemented code against the plan file's acceptance criteria. For each acceptance criterion, verify it has corresponding implementation. Check for missing features, incorrect behavior, and over-scope additions.
-
-Report findings in your standard CODE REVIEW MODE output format.
-
-Target 1-3 findings. Only report issues you have HIGH confidence in.
-```
-
-Spawn all agents via Task tool calls in a SINGLE message (parallel execution). In TDD mode, spawn all 4 agents. In fast mode, spawn only the first 3 agents (no plan-compliance-reviewer -- no plan file exists). Apply the Model Selection (Reasoning) rule referenced at the top of this file to every agent.
-
-Wait for all agents to complete.
+1. See `skills/review-pipeline/SKILL.md` Context Packets. (Quick-scope packets: QUICK REVIEW MODE preamble, changed-files list, "Target 1-3 findings" instruction; the plan-compliance packet reads `{$PLAN_FILE}` and extracts the `## Acceptance Criteria` section.)
+2. Spawn all agents via Task tool calls in a SINGLE message (parallel execution). In TDD mode, spawn all 4 agents. In fast mode, spawn only the first 3 agents (no plan-compliance-reviewer -- no plan file exists). Apply the Model Selection (Reasoning) rule referenced at the top of this file to every agent. Wait for all agents to complete.
 
 #### 4.5.3: Parse findings from each agent
 
-After all agents complete, parse findings from each agent's final message. Each agent has a distinct output format -- normalize all findings into a unified list:
-
-**Bug Detector** findings (from `## Bugs Detected` section):
-- Each `- **[Bug type]:** [Description] - \`file:line\`` entry becomes one finding
-- Severity: taken from the Critical/High/Medium subsection the entry appears under
-- Category: "Bug" (or "Security" if the bug type mentions security, injection, XSS, CSRF, auth, or access control)
-
-**Pattern Reviewer** findings (from `## Project Pattern Deviations` section):
-- Each `- **[Pattern type]:** [Deviation description] - \`file:line\`` entry becomes one finding
-- Severity: Medium (pattern deviations default to Medium)
-- Category: "Pattern"
-
-**Stack Reviewer** findings (from `## Stack Best Practice Violations` section):
-- Each `- **[Rule category]:** [Violation description] - \`file:line\`` entry becomes one finding
-- Severity: Medium (stack violations default to Medium)
-- Category: "Standards"
-
-**Plan Compliance Reviewer** findings (TDD mode only, from `## Plan Compliance Findings` section):
-- SG-NNN entries (Spec Gap) -> Category: "Spec Gap", severity from the entry
-- CI-NNN entries (Cross-Phase Integration) -> Category: "Spec Gap", severity from the entry
-- OS-NNN entries (Over-Scope) -> Category: "Spec Gap", severity: Medium
-
-If an agent reports no findings (e.g., "No bugs detected.", "No project pattern deviations found.", "No stack best practice violations found."), it contributes zero findings.
+See `skills/review-pipeline/SKILL.md` Parse Findings.
+(Plan Compliance Reviewer findings apply in TDD mode only.)
 
 #### 4.5.4: Deduplicate and merge
 
-For each pair of findings from different agents, check if they reference the same file AND their line ranges overlap (within 5 lines of each other). If so, merge them:
-- Keep the higher severity (Critical > High > Medium)
-- Combine categories (e.g., "Bug, Standards")
-- Combine descriptions (concatenate with "; " separator)
-- Use the broader line range
+See `skills/review-pipeline/SKILL.md` Deduplicate and Merge (Rules 0–3).
 
 #### 4.5.5: Assign IDs and write REVIEW.md
 
-1. Assign sequential IDs to all merged findings: F-001, F-002, F-003, ...
-2. Write `{review_output_path}` using the review-report template (`skills/core/templates/review-report.md`):
-   - Fill in the Summary section: Spec="Quick Review", Phase="N/A", date, iteration=1, status: PENDING
-   - Fill in the Counts tables (by severity and by category)
-   - Write each finding as a `### F-NNN` section with: Severity, Category, File, Lines, Evidence, Evidence Strength: [CITED] | [VERIFIED], Citation: <URL | Context7 lib ID + query | skill section path | codebase file:line>, Impact, Test Gap, Description, Suggested Fix, Validation: pending, Fix Status: pending
-   - Leave the False Positives section empty
-   - Leave the Fix Summary table with one row per finding, all showing "pending"
-3. Verify the REVIEW.md was written by reading it back with the Read tool.
+See `skills/review-pipeline/SKILL.md` Write Report.
+Report identity: Spec="Quick Review", Phase="N/A", date, iteration=1, status: PENDING.
 
 #### 4.5.6: Evaluate and present findings
 
@@ -471,21 +373,11 @@ For each pair of findings from different agents, check if they reference the sam
 
 2. Display findings summary: "{N} findings from {agent_count} reviewers: {critical} critical, {high} high, {medium} medium"
 
-3. For each finding, spawn `finding-validator` agent -- up to 5 in parallel -- to classify as REAL BUG / FALSE POSITIVE / STYLISTIC / DROPPED. Apply the Model Selection (Reasoning) rule referenced at the top of this file.
+3. See `skills/review-pipeline/SKILL.md` Validate Findings (the manifest gates the optional parts: batch size 5, escalation off, no batch validators, stylistic auto-confirm). Classify each finding as REAL BUG / FALSE POSITIVE / STYLISTIC / DROPPED, update the report with the classifications, and handle DROPPED/FALSE POSITIVE per the engine. FP entries persisted from this command use Phase: `Quick Task`.
 
-4. Handle DROPPED findings (Evidence Strength gate failures): silently discard. Do NOT persist to `.bee/false-positives.md` -- DROPPED is a reviewer process error, not a code claim. Persisting would pollute the FP store and risks suppressing legitimate future findings via summary match. Display a brief tally: "{N} findings dropped at Evidence Strength gate (missing/[ASSUMED]/malformed citation)."
+4. Per `$STYLISTIC_MODE: auto-confirm`: STYLISTIC findings are auto-included as confirmed without per-issue user choice (unlike full `/bee:review` which asks for each). This is intentional -- the quick gate prioritizes speed over granular control.
 
-5. Handle FALSE POSITIVE findings (only TRUE FALSE POSITIVE verdicts -- NOT DROPPED): if any findings were classified as FALSE POSITIVE, persist them to `.bee/false-positives.md`. If the file does not exist, create it with a `# False Positives` header. Read `.bee/false-positives.md`, count the number of existing `## FP-` headings, set the next FP number to count + 1. For each FALSE POSITIVE finding, append an entry (incrementing the FP number for each):
-     ```
-     ## FP-{NNN}: {one-line summary}
-     - **Finding:** {original finding description}
-     - **Reason:** {validator's reason for FALSE POSITIVE classification}
-     - **File:** {file_path of the finding}
-     - **Phase:** Quick Task
-     - **Date:** {current ISO 8601 date}
-     ```
-
-5. Present confirmed findings (REAL BUG + STYLISTIC) to the user. Note: In ad-hoc review mode, STYLISTIC findings are auto-included as confirmed without per-issue user choice (unlike full `/bee:review` which asks for each). This is intentional -- the quick gate prioritizes speed over granular control:
+5. Present confirmed findings (REAL BUG + STYLISTIC) to the user:
 
 ```
 Quick review found {N} confirmed issue(s):
@@ -497,40 +389,11 @@ Question: "Quick review found {N} issue(s). What to do?"
 Options: "Fix before commit" (spawn fixers for confirmed issues), "Commit as-is" (acknowledge and proceed), "Cancel" (stop here).
 
 6. Handle user choice:
-   - **Fix:** Sort confirmed findings by priority before spawning fixers:
-     - Priority 1: Critical severity
-     - Priority 2: High severity
-     - Priority 3: Standards category (Medium)
-     - Priority 4: Dead Code category (Medium)
-     - Priority 5: Other Medium severity
+   - **Fix:** Display the priority-sorted fix order (the engine sorts Critical > High > Standards > Dead Code > other Medium), then:
 
-     Display the sorted fix order:
-     ```
-     Fix order:
-     1. F-{NNN}: {summary} (Critical)
-     2. F-{NNN}: {summary} (High)
-     ...
-     ```
+     See `skills/review-pipeline/SKILL.md` Fix Confirmed Issues (File-Based Parallelism).
 
-     **Fixer Parallelization Strategy:**
-
-     1. Group confirmed findings by file path
-     2. For findings on DIFFERENT files: spawn fixers in parallel (one fixer per file group, processing its findings)
-     3. For findings on the SAME file: run fixers sequentially within the group (safety — each fix changes file state)
-     4. Collect all results, update review file with fix status
-
-     Example: 6 findings on 3 files → 3 parallel fixer groups (instead of 6 sequential).
-
-     Then for each file group (parallel across groups, sequential within each group):
-     1. Display: "Fixing F-{NNN}: {summary}..." (for each finding in the group)
-     2. For same-file findings: spawn fixer and WAIT for completion before the next in the group. For different-file groups: spawn in parallel.
-     3. Read the fixer's Fix Report status from its final message.
-     4. If the fixer reports "Reverted" or "Failed": display "Fix for F-{NNN} failed -- changes reverted. Skipping." and continue to the next finding.
-     5. After all findings processed, display: "{fixed} fixed, {skipped} skipped out of {total}."
-
-     CRITICAL: Within the same file group, spawn fixers SEQUENTIALLY, one at a time. Never spawn multiple fixers for the same file in parallel. One fix may change the context for the next finding on that file. Cross-file fixer groups may run in parallel safely.
-
-        Then present the post-review menu:
+     After all findings are processed, display: "{fixed} fixed, {skipped} skipped out of {total}." Then present the post-review menu:
 
         ```
         AskUserQuestion(
@@ -616,6 +479,14 @@ Note: `{N}` still increments (it's the historical task counter), but the table o
 ```
 
 6. Write the updated STATE.md.
+
+7. **Touch the focused spec (FIX 6 batch14):** After writing STATE.md, bump the focused active spec's `last_touched` timestamp so quick work participates in active-spec ordering. Check whether a focused active spec exists by reading the `- Path:` line from STATE.md (the line was just written). If the path contains `.bee/specs/` and the derived slug is not `(none)`, run silently:
+
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js touch --bee .bee --slug <slug>
+   ```
+
+   Skip silently if the path is `(none)`, no specs.json exists (legacy single-spec repo), or the touch command exits non-zero (spec not found or terminal). Do NOT block or fail the quick task on any touch error.
 
 ### Step 7: Complete
 

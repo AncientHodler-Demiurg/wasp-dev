@@ -165,5 +165,32 @@ assert(
 // ============================================================
 // Results
 // ============================================================
+// ============================================================
+// Freshness (Phase 5, v4.6): the committed build must not be stale relative
+// to dashboard/src -- a silent-staleness check (the build is a committed
+// artifact; nothing else verifies it tracks the sources)
+// ============================================================
+console.log('\nFreshness: hive-dist vs dashboard/src');
+{
+  const srcDir = path.join(__dirname, '..', '..', 'dashboard', 'src');
+  const distDir = path.join(__dirname, '..', 'hive-dist');
+  function newestMtime(dir) {
+    let newest = 0;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p2 = path.join(dir, entry.name);
+      if (entry.isDirectory()) newest = Math.max(newest, newestMtime(p2));
+      else newest = Math.max(newest, fs.statSync(p2).mtimeMs);
+    }
+    return newest;
+  }
+  const srcNewest = newestMtime(srcDir);
+  const distNewest = newestMtime(distDir);
+  // 5s tolerance: same-commit checkouts get near-identical mtimes
+  assert(
+    distNewest + 5000 >= srcNewest,
+    `hive-dist is at least as new as dashboard/src (rebuild with: cd plugins/bee/dashboard && npm run build) -- src ${new Date(srcNewest).toISOString()} vs dist ${new Date(distNewest).toISOString()}`
+  );
+}
+
 console.log(`\nResults: ${passed} passed, ${failed} failed out of ${passed + failed} assertions`);
 process.exit(failed > 0 ? 1 : 0);

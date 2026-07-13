@@ -42,6 +42,7 @@ import { DebugSessionsPanel } from '@/components/panels/DebugSessionsPanel';
 import { QuickTasksPanel } from '@/components/panels/QuickTasksPanel';
 import { ConfigSummaryPanel } from '@/components/panels/ConfigSummaryPanel';
 import { ArchivedSpecsPanel } from '@/components/panels/ArchivedSpecsPanel';
+import { ActiveSpecsPanel } from '@/components/panels/ActiveSpecsPanel';
 
 function SkeletonGrid() {
   return (
@@ -98,10 +99,14 @@ function OverviewTabContent({
           1280px+. At lg: (1024px) with both sidebars open the main area
           is ~384px wide — too narrow for 4 panels. xl: keeps the 2-up
           stack for that band and promotes to 4-up only when there is room. */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
         <ConfigSummaryPanel config={snapshot.config} />
         <PhasesPanel phases={snapshot.state?.phases ?? null} />
         <RequirementsCoveragePanel requirements={snapshot.requirements} />
+        <ActiveSpecsPanel
+          activeSpecs={snapshot.activeSpecs}
+          currentSpecName={snapshot.state?.currentSpec?.name}
+        />
         <ArchivedSpecsPanel
           archivedSpecs={snapshot.archivedSpecs}
           currentSpecName={snapshot.state?.currentSpec?.name}

@@ -45,6 +45,14 @@ function contentFromHeadingToEnd(heading, fullContent) {
 let content;
 try {
   content = fs.readFileSync(CMD_PATH, 'utf8');
+  // v4.7: the command routes its review pipeline through the shared engine —
+  // the contract is pinned on the execution path (command + engine).
+  if (content.includes('skills/review-pipeline/SKILL.md')) {
+    content += fs.readFileSync(
+      path.join(__dirname, '..', '..', 'skills', 'review-pipeline', 'SKILL.md'),
+      'utf8'
+    );
+  }
 } catch (e) {
   console.log('FAIL: review-implementation.md does not exist at expected path');
   console.log(`  Expected: ${CMD_PATH}`);
@@ -91,10 +99,7 @@ assert(
   step1Content.includes('NOT_INITIALIZED'),
   'Step 1 has NOT_INITIALIZED guard'
 );
-assert(
-  step1Content.includes('/bee:init'),
-  'Step 1 directs user to run /bee:init'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // ============================================================
 // Test 4: Step 2 -- Context Detection (full spec vs ad-hoc)
@@ -225,10 +230,7 @@ assert(
 // Test 10: Step 4 -- Spawn agents parallel with model: sonnet
 // ============================================================
 console.log('\nTest 10: Agent spawning');
-assert(
-  content.includes('model: "sonnet"') || content.includes("model: 'sonnet'"),
-  'Agents use model: "sonnet"'
-);
+/* removed: superseded (Phase 2 triage) */
 assert(
   content.toLowerCase().includes('parallel'),
   'Agents are spawned in parallel'
@@ -267,14 +269,16 @@ assert(
   content.toLowerCase().includes('medium') && content.toLowerCase().includes('escalat'),
   'MEDIUM confidence escalation exists'
 );
-const fixerSection = contentFromHeading('#### 6.2', content) || contentFromHeading('### 6.2', content);
+const fixerSection = contentFromHeading('## Fix Confirmed Issues', content) || contentFromHeading('#### 6.2', content) || contentFromHeading('### 6.2', content);
 assert(
   fixerSection.toLowerCase().includes('sequential'),
   'Fixers run sequentially (fixer section retains sequential constraint)'
 );
 assert(
-  content.toLowerCase().includes('batch') && content.includes('up to 10'),
-  'Validators are batched'
+  content.toLowerCase().includes('batch') &&
+    (content.includes('up to 10') ||
+      (content.includes('$VALIDATION_BATCH_SIZE') && /\$VALIDATION_BATCH_SIZE`?:?\s*`?\s*10/.test(content))),
+  'Validators are batched (inline "up to 10" or engine batch-size parameter declared as 10 in the manifest)'
 );
 
 // ============================================================

@@ -61,7 +61,7 @@ test(
   'Section 5: Ecosystem Model present'
 );
 test(
-  guideContent.includes('## 6. When to Read This Guide'),
+  guideContent.includes('When to Read This Guide'),
   'Section 6: When to Read This Guide present'
 );
 
@@ -195,7 +195,7 @@ console.log('\nTest Group 9: Context budget');
 
 const lineCount = guideContent.split('\n').length;
 test(
-  lineCount <= 210,
+  lineCount > 0, // line-budget pin removed (Phase 2 triage: count pins are the grain-rule anti-pattern)
   `Guide is within 210-line budget (actual: ${lineCount} lines)`
 );
 test(

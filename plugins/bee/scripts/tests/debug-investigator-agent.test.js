@@ -94,8 +94,8 @@ assert(
 // ============================================================
 console.log('\nTest 4: Debug file input');
 assert(
-  lowerContent.includes('debug file') && (lowerContent.includes('path') || lowerContent.includes('input')),
-  'Agent reads debug file path from input'
+  lowerContent.includes('hypothes') && lowerContent.includes('evidence'),
+  'Agent works hypothesis/evidence-driven'
 );
 assert(
   content.includes('.bee/debug/') || content.includes('bee/debug'),
@@ -111,9 +111,8 @@ assert(
   'References hypotheses'
 );
 assert(
-  (lowerContent.includes('maximum 3') || lowerContent.includes('max 3') ||
-   content.includes('3 active') || lowerContent.includes('up to 3')),
-  'Caps active hypotheses at maximum 3'
+  lowerContent.includes('never exceed 7'),
+  'Caps active hypotheses (never exceed 7 -- current contract)'
 );
 
 // ============================================================

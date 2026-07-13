@@ -26,7 +26,15 @@ function contentFromStep(stepPattern, fullContent) {
   return fullContent.substring(startIdx);
 }
 
-const content = fs.readFileSync(EXECUTE_PHASE_PATH, 'utf8');
+let content = fs.readFileSync(EXECUTE_PHASE_PATH, 'utf8');
+// v4.7: execute-phase routes its wave-execution core through the shared
+// wave-execution skill — the contract is pinned on the execution path.
+if (content.includes('skills/wave-execution/SKILL.md')) {
+  content += fs.readFileSync(
+    path.join(__dirname, '..', '..', 'skills', 'wave-execution', 'SKILL.md'),
+    'utf8'
+  );
+}
 
 // ============================================================
 // Test 1: Step 5a references implementation_mode from config

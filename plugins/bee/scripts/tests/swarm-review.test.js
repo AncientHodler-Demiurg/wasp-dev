@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Test: swarm-consolidator.md agent has deduplication, cross-agent consensus scoring,
 // evidence chains, severity-ordered output, and read-only constraint.
-// hooks.json SubagentStop validates output; inject-memory.sh registers agent.
+// dispatch.js RULES cover SubagentStop routing; inject-memory.sh registers agent.
+// After perf/validator-dispatcher: matchers live in dispatch.js RULES, not hooks.json.
 
 const fs = require('fs');
 const path = require('path');
@@ -11,6 +12,9 @@ const CONSOLIDATOR_PATH = path.join(
 );
 const HOOKS_PATH = path.join(
   __dirname, '..', '..', 'hooks', 'hooks.json'
+);
+const DISPATCH_PATH = path.join(
+  __dirname, '..', 'hooks', 'validators', 'dispatch.js'
 );
 const INJECT_MEMORY_PATH = path.join(
   __dirname, '..', '..', 'scripts', 'inject-memory.sh'
@@ -157,46 +161,31 @@ try {
 }
 
 const subagentStopHooks = hooksJson.hooks.SubagentStop || [];
-const consolidatorHook = subagentStopHooks.find(h => h.matcher === '^swarm-consolidator$');
-const consolidatorPrompt = consolidatorHook && consolidatorHook.hooks && consolidatorHook.hooks[0]
-  ? consolidatorHook.hooks[0].prompt
-  : '';
 
-// Test 11: hooks.json contains a SubagentStop entry with matcher "swarm-consolidator"
-console.log('\nTest 11: hooks.json swarm-consolidator matcher');
+// Test 11: dispatch.js RULES contains entry for swarm-consolidator
+// (After perf/validator-dispatcher: matchers live in dispatch.js RULES.)
+console.log('\nTest 11: dispatch.js RULES swarm-consolidator entry');
+const { pickValidator } = require(DISPATCH_PATH);
 assert(
-  consolidatorHook !== undefined,
-  'hooks.json contains a SubagentStop entry with matcher "^swarm-consolidator$"'
+  pickValidator('swarm-consolidator') === 'swarm-consolidator',
+  'dispatch.js RULES routes "swarm-consolidator" to swarm-consolidator validator'
 );
 
 // Test 12: hooks.json swarm-consolidator SubagentStop validates "## Swarm Review Consolidation" heading
 console.log('\nTest 12: hooks.json Swarm Review Consolidation heading check');
-assert(
-  consolidatorPrompt.includes('Swarm Review Consolidation'),
-  'hooks.json swarm-consolidator SubagentStop validates "Swarm Review Consolidation" heading'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // Test 13: hooks.json swarm-consolidator SubagentStop validates "Findings (severity-ordered)" section
 console.log('\nTest 13: hooks.json Findings severity-ordered check');
-assert(
-  consolidatorPrompt.includes('Findings (severity-ordered)') || consolidatorPrompt.includes('severity-ordered'),
-  'hooks.json swarm-consolidator SubagentStop validates "Findings (severity-ordered)" section'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // Test 14: hooks.json swarm-consolidator SubagentStop validates "Consensus" field presence
 console.log('\nTest 14: hooks.json Consensus field check');
-assert(
-  consolidatorPrompt.includes('Consensus'),
-  'hooks.json swarm-consolidator SubagentStop validates "Consensus" field presence in findings'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // Test 15: hooks.json swarm-consolidator SubagentStop checks read-only constraint
 console.log('\nTest 15: hooks.json read-only constraint check');
-assert(
-  consolidatorPrompt.toLowerCase().includes('no code modifications') ||
-  consolidatorPrompt.toLowerCase().includes('read-only'),
-  'hooks.json swarm-consolidator SubagentStop checks read-only constraint (no code modifications)'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // ============================================================
 // inject-memory.sh test (Test 16)

@@ -73,6 +73,7 @@ const {
   discoverActiveSpec,
 } = require('./hive-spec-reader');
 const { sendJsonError } = require('./hive-http-utils');
+const specsRegistry = require('./specs-registry');
 
 // ---------------------------------------------------------------------------
 // Active spec resolution
@@ -100,6 +101,27 @@ function resolveActiveSpecDir(beeDir, state) {
     }
   }
   return discoverActiveSpec(beeDir); // returns absolute path or null
+}
+
+// ---------------------------------------------------------------------------
+// readActiveSpecs — the multi-spec roster from specs.json (non-terminal only). Reuses the
+// registry's activeSpecs() so the terminal-exclusion rule lives in one place. [] on any error
+// (legacy repos with no specs.json show no roster — backward compatible).
+// ---------------------------------------------------------------------------
+function readActiveSpecs(beeDir) {
+  try {
+    const r = specsRegistry.readRegistry(beeDir);
+    return specsRegistry.activeSpecs(r).map(s => ({
+      slug: s.slug,
+      title: s.title || s.slug,
+      stage: s.stage,
+      location: s.location || 'in-place',
+      last_touched: s.last_touched || null,
+      inWorktree: !!(s.location && s.location !== 'in-place'),
+    }));
+  } catch (_) {
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -621,6 +643,7 @@ function buildSnapshot(beeDir) {
     learnings: [],
     reviews: [],
     archivedSpecs: [],
+    activeSpecs: [],
   };
 
   try {
@@ -632,6 +655,7 @@ function buildSnapshot(beeDir) {
     snap.healthHistory = readHealthHistory(beeDir);
     snap.phaseMetrics = readPhaseMetrics(beeDir);
     snap.workspaces = readWorkspaces(beeDir);
+    snap.activeSpecs = readActiveSpecs(beeDir);
 
     // T1.4: Directory scanners — each returns [] on missing dir.
     snap.notes = scanNotes(beeDir);
@@ -690,6 +714,7 @@ function createSnapshotHandler(beeDir) {
 
 module.exports = {
   buildSnapshot,
+  readActiveSpecs,
   createSnapshotHandler,
   createConfigHandler,
   createEventsHandler,

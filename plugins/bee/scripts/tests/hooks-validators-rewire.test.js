@@ -154,8 +154,9 @@ assert(
 // Assertion 2: disk listing matches VALIDATOR_ROSTER exactly.
 // Phase 2 added batch-lib.js as a sibling helper and a batch/ subdirectory of batch validators —
 // neither is a per-agent validator, so both are filtered from the per-agent roster scan.
+// perf/validator-dispatcher added dispatch.js as the in-process routing shim — also filtered.
 const dirContents = fs.readdirSync(VALIDATORS_DIR)
-  .filter(f => f.endsWith('.js') && f !== 'validators-lib.js' && f !== 'batch-lib.js')
+  .filter(f => f.endsWith('.js') && f !== 'validators-lib.js' && f !== 'batch-lib.js' && f !== 'dispatch.js')
   .sort();
 const rosterSorted = [...VALIDATOR_ROSTER].sort();
 assert(
@@ -211,6 +212,12 @@ if (proposedHash !== EXPECTED_MATCHER_SET_HASH) {
 // ---------------------------------------------------------------------------
 // Post-rewire assertions (5a-5g) — gated on isRewired. Skip with a clear
 // message until T1.11 commits the actual rewire to hooks.json.
+//
+// After perf/validator-dispatcher consolidation: matchers now live in
+// dispatch.js RULES (not in hooks.json). Assertions 5a-5c check hooks.json
+// shape (2 command entries: dispatcher + catch-all). Assertions 5d-5g check
+// dispatch.js RULES for verbatim matcher preservation — same safety contract,
+// new location.
 // ---------------------------------------------------------------------------
 
 console.log('');
@@ -228,19 +235,20 @@ const commandEntries = subStop.filter(e =>
 );
 
 // "Rewired" = no type:"prompt" entries remain in SubagentStop AND at least
-// one type:"command" entry exists. This is intentionally strict: T1.11's
-// success criterion is full prompt-to-command conversion.
+// one type:"command" entry exists.
 const isRewired = promptEntries.length === 0 && commandEntries.length > 0;
 
 if (!isRewired) {
   console.log('  SKIP (pre-rewire): post-rewire assertions deferred until T1.11 commits');
   console.log(`    type:"prompt" entries: ${promptEntries.length} (expected 0 post-rewire)`);
-  console.log(`    type:"command" entries: ${commandEntries.length} (expected 26 post-rewire)`);
+  console.log(`    type:"command" entries: ${commandEntries.length} (expected 2 post-dispatcher-consolidation)`);
 } else {
-  // 5a: exactly 26 type:"command" entries (25 per-agent + 1 catch-all).
+  // 5a: exactly 2 type:"command" entries (1 dispatcher + 1 catch-all).
+  // After perf/validator-dispatcher: the 25 per-agent entries are consolidated
+  // into dispatch.js; only the dispatcher entry + the emit catch-all remain.
   assert(
-    commandEntries.length === 26,
-    'SubagentStop has exactly 26 type:"command" entries (25 per-agent + 1 catch-all)'
+    commandEntries.length === 2,
+    'SubagentStop has exactly 2 type:"command" entries (dispatcher + catch-all)'
   );
 
   // 5b: zero type:"prompt" entries remain.
@@ -249,7 +257,9 @@ if (!isRewired) {
     'SubagentStop has zero type:"prompt" entries post-rewire'
   );
 
-  // 5c: terminal entry is the catch-all emit-event.js subagent_stop, no matcher.
+  // 5c: terminal entry is the catch-all subagent_stop emit, no matcher.
+  // (Now routed through emit-event-gate.sh, which execs emit-event.js only when a
+  // consumer is active — see emit-event-gate.sh / hooks-emit-gate.test.js.)
   const terminal = subStop[subStop.length - 1];
   const terminalHook = terminal && terminal.hooks && terminal.hooks[0];
   assert(
@@ -260,60 +270,120 @@ if (!isRewired) {
     terminalHook
       && terminalHook.type === 'command'
       && typeof terminalHook.command === 'string'
-      && terminalHook.command.includes('emit-event.js')
+      && terminalHook.command.includes('emit-event')
       && terminalHook.command.includes('subagent_stop'),
-    'terminal SubagentStop entry is `emit-event.js subagent_stop` (catch-all command)'
+    'terminal SubagentStop entry is the catch-all subagent_stop emit (gated)'
   );
 
-  // 5d: for every per-agent matcher, the corresponding validator file exists.
-  const liveMatcherEntries = subStop.filter(e =>
-    e.matcher && e.hooks && e.hooks[0] && e.hooks[0].type === 'command'
+  // 5c2: first entry is the dispatcher, no matcher.
+  const dispatchEntry = subStop[0];
+  const dispatchHook = dispatchEntry && dispatchEntry.hooks && dispatchEntry.hooks[0];
+  assert(
+    dispatchEntry && !('matcher' in dispatchEntry),
+    'first SubagentStop entry (dispatcher) has no matcher key'
   );
-  let allLiveFilesExist = true;
-  liveMatcherEntries.forEach(e => {
-    const expectedFilename = MATCHER_TO_FILENAME[e.matcher];
-    if (!expectedFilename) {
-      allLiveFilesExist = false;
-      console.log(`    unknown matcher in live hooks.json: ${e.matcher}`);
-      return;
-    }
-    const exists = fs.existsSync(path.join(VALIDATORS_DIR, expectedFilename));
-    if (!exists) {
-      allLiveFilesExist = false;
-      console.log(`    missing validator file for matcher ${e.matcher}: ${expectedFilename}`);
-    }
+  assert(
+    dispatchHook
+      && dispatchHook.type === 'command'
+      && typeof dispatchHook.command === 'string'
+      && dispatchHook.command.includes('dispatch-gate.sh'),
+    'first SubagentStop entry routes to dispatch-gate.sh (gated dispatcher)'
+  );
+  // The gate execs validators/dispatch.js only when an autonomous run is active —
+  // the routing chain is preserved, just deferred behind a marker check (validators
+  // no-op in manual mode anyway, so this is byte-identical with the node boot removed).
+  const dispatchGateSrc = fs.readFileSync(
+    path.join(VALIDATORS_DIR, '..', 'dispatch-gate.sh'), 'utf8'
+  );
+  assert(
+    /\.autonomous-run-active/.test(dispatchGateSrc) && /validators\/dispatch\.js/.test(dispatchGateSrc),
+    'dispatch-gate.sh gates on .autonomous-run-active and execs validators/dispatch.js'
+  );
+
+  // 5d: dispatch.js RULES contain all 25 validator filenames.
+  // Matchers moved from hooks.json into dispatch.js RULES — verify them there.
+  const DISPATCH_PATH = path.join(VALIDATORS_DIR, 'dispatch.js');
+  assert(
+    fs.existsSync(DISPATCH_PATH),
+    'dispatch.js exists at validators/dispatch.js'
+  );
+
+  const dispatchSrc = fs.readFileSync(DISPATCH_PATH, 'utf8');
+
+  // Every filename in MATCHER_TO_FILENAME must appear in dispatch.js source.
+  const allFilesInDispatch = Object.values(MATCHER_TO_FILENAME).every(fn => {
+    // Strip .js suffix to match the string in RULES: 'implementer' not 'implementer.js'
+    const stem = fn.replace(/\.js$/, '');
+    return dispatchSrc.includes("'" + stem + "'") || dispatchSrc.includes('"' + stem + '"');
   });
   assert(
-    allLiveFilesExist && liveMatcherEntries.length === 25,
-    'every per-agent matcher in live hooks.json maps to an existing validator file (25 entries)'
+    allFilesInDispatch,
+    'dispatch.js RULES reference all 25 validator filenames from MATCHER_TO_FILENAME'
   );
-
-  // 5e: live matcher set hashes to EXPECTED_MATCHER_SET_HASH (verbatim
-  // preservation enforcement — catches any regex drift).
-  const liveMatchers = liveMatcherEntries.map(e => e.matcher);
-  const liveHash = sha256OfSortedJson(liveMatchers);
-  assert(
-    liveHash === EXPECTED_MATCHER_SET_HASH,
-    'live hooks.json matcher set hashes to EXPECTED_MATCHER_SET_HASH (verbatim preservation)'
-  );
-  if (liveHash !== EXPECTED_MATCHER_SET_HASH) {
-    console.log(`    expected: ${EXPECTED_MATCHER_SET_HASH}`);
-    console.log(`    actual:   ${liveHash}`);
+  if (!allFilesInDispatch) {
+    const missing = Object.values(MATCHER_TO_FILENAME).filter(fn => {
+      const stem = fn.replace(/\.js$/, '');
+      return !dispatchSrc.includes("'" + stem + "'") && !dispatchSrc.includes('"' + stem + '"');
+    });
+    console.log(`    missing in dispatch.js RULES: ${missing.join(', ')}`);
   }
 
-  // 5f: removed matchers are not present in live hooks.json.
-  REMOVED_MATCHER_AGENTS.forEach(agent => {
-    const present = liveMatchers.some(m => m.includes(agent));
+  // 5e: dispatch.js preserves the critical negative-lookbehind and suffix patterns verbatim.
+  // These patterns are the heart of the routing contract — any drift breaks the semantics.
+  const CRITICAL_PATTERNS = [
+    { pattern: '(?<!quick-)implementer$', label: 'implementer negative-lookbehind' },
+    { pattern: '(?<!audit-)bug-detector$', label: 'bug-detector negative-lookbehind' },
+    { pattern: 'pattern-reviewer$',        label: 'pattern-reviewer suffix (non-anchored)' },
+    { pattern: 'stack-reviewer$',          label: 'stack-reviewer suffix (non-anchored)' },
+  ];
+  CRITICAL_PATTERNS.forEach(({ pattern, label }) => {
     assert(
-      !present,
-      `${agent} matcher is NOT present in live hooks.json (REQ-03)`
+      dispatchSrc.includes(pattern),
+      `dispatch.js RULES preserve verbatim pattern: ${label} ('${pattern}')`
     );
   });
 
-  // 5g: no residual hooks.json.tmp from T1.11's atomic rename.
+  // 5e2: RULES matcher set hashes to EXPECTED_MATCHER_SET_HASH.
+  // Extract regex source strings from the RULES array in dispatch.js and hash them.
+  // The dispatch module exports pickValidator; RULES is in module scope.
+  // We read them by importing the module and inspecting via the source text
+  // (avoids re-executing module code). Extract all /regex/ literals from RULES lines.
+  const rulesMatch = dispatchSrc.match(/const RULES = \[([\s\S]*?)\];/);
+  let dispatchHash = null;
+  if (rulesMatch) {
+    // Pull every regex literal source from RULES block.
+    const rulesBlock = rulesMatch[1];
+    // Each RULES entry is [ /regex/, 'name' ] — extract the regex source strings.
+    const reSources = [];
+    const lineRe = /\[\s*\/(.+?)\/[gimsuy]*\s*,/g;
+    let m;
+    while ((m = lineRe.exec(rulesBlock)) !== null) {
+      reSources.push(m[1]);
+    }
+    dispatchHash = sha256OfSortedJson(reSources);
+  }
+  assert(
+    dispatchHash === EXPECTED_MATCHER_SET_HASH,
+    'dispatch.js RULES regex sources hash to EXPECTED_MATCHER_SET_HASH (verbatim preservation)'
+  );
+  if (dispatchHash !== EXPECTED_MATCHER_SET_HASH) {
+    console.log(`    expected: ${EXPECTED_MATCHER_SET_HASH}`);
+    console.log(`    actual:   ${dispatchHash}`);
+  }
+
+  // 5f: removed agents are not referenced in dispatch.js RULES.
+  REMOVED_MATCHER_AGENTS.forEach(agent => {
+    const present = dispatchSrc.includes("'" + agent + "'") || dispatchSrc.includes('"' + agent + '"');
+    assert(
+      !present,
+      `${agent} is NOT in dispatch.js RULES (REQ-03)`
+    );
+  });
+
+  // 5g: no residual hooks.json.tmp.
   assert(
     !fs.existsSync(HOOKS_JSON_TMP_PATH),
-    'no residual hooks.json.tmp from T1.11 atomic-write (clean rename)'
+    'no residual hooks.json.tmp (clean state)'
   );
 }
 

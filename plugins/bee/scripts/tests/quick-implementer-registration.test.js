@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 // Test: hooks.json and inject-memory.sh include quick-implementer agent
+// After perf/validator-dispatcher: the per-agent SubagentStop matchers live in
+// dispatch.js RULES (not hooks.json). Assertions updated accordingly.
 
 const fs = require('fs');
 const path = require('path');
 
 const SCRIPT_PATH = path.join(__dirname, '..', 'inject-memory.sh');
 const HOOKS_PATH = path.join(__dirname, '..', '..', 'hooks', 'hooks.json');
+const DISPATCH_PATH = path.join(__dirname, '..', 'hooks', 'validators', 'dispatch.js');
 
 let passed = 0;
 let failed = 0;
@@ -21,9 +24,10 @@ function assert(condition, testName) {
 }
 
 // ============================================================
-// Test 1: hooks.json SubagentStop has quick-implementer entry
+// Test 1: dispatch.js RULES includes quick-implementer entry
+// (matchers moved from hooks.json to dispatch.js RULES in perf/validator-dispatcher)
 // ============================================================
-console.log('Test 1: hooks.json SubagentStop has quick-implementer entry');
+console.log('Test 1: dispatch.js RULES has quick-implementer entry');
 
 let hooks;
 try {
@@ -42,49 +46,36 @@ assert(
   'SubagentStop array exists and is non-empty'
 );
 
-const quickImplStop = subagentStopEntries.find(
-  (entry) => entry.matcher === '^quick-implementer$'
+// After consolidation: the dispatch entry routes to quick-implementer via RULES.
+const dispatchSrc = fs.readFileSync(DISPATCH_PATH, 'utf8');
+assert(
+  dispatchSrc.includes("'quick-implementer'"),
+  "dispatch.js RULES includes 'quick-implementer' entry"
 );
 assert(
-  quickImplStop !== undefined,
-  'SubagentStop has entry with matcher "^quick-implementer$"'
+  dispatchSrc.includes('/^quick-implementer$/'),
+  "dispatch.js RULES has '^quick-implementer$' pattern"
 );
 
 // ============================================================
-// Test 2: SubagentStop quick-implementer validates TDD + tests + task notes + signal
+// Test 2: dispatch.js routes to quick-implementer.js validator
 // ============================================================
-console.log('\nTest 2: SubagentStop quick-implementer prompt validates required criteria');
+console.log('\nTest 2: dispatch.js routes quick-implementer to its validator');
 
-if (quickImplStop) {
-  const stopHooks = quickImplStop.hooks;
-  assert(
-    Array.isArray(stopHooks) && stopHooks.length > 0,
-    'quick-implementer SubagentStop has hooks array'
-  );
-
-  const promptHook = stopHooks.find((h) => h.type === 'prompt');
-  assert(promptHook !== undefined, 'quick-implementer SubagentStop has a prompt hook');
-
-  if (promptHook) {
-    const prompt = promptHook.prompt;
-    assert(
-      prompt.includes('TDD'),
-      'Prompt validates TDD compliance'
-    );
-    assert(
-      prompt.toLowerCase().includes('test') && prompt.toLowerCase().includes('pass'),
-      'Prompt validates tests passing'
-    );
-    assert(
-      prompt.includes('Task Notes') || prompt.includes('task notes'),
-      'Prompt validates Task Notes heading'
-    );
-    assert(
-      prompt.includes("Task complete. [X] tests passing."),
-      'Prompt validates task completion signal with exact format'
-    );
-  }
-}
+const { pickValidator } = require(DISPATCH_PATH);
+assert(
+  pickValidator('quick-implementer') === 'quick-implementer',
+  'dispatch.js pickValidator("quick-implementer") → "quick-implementer"'
+);
+assert(
+  pickValidator('implementer') !== 'quick-implementer',
+  'dispatch.js does NOT route plain "implementer" to quick-implementer (negative-lookbehind correct)'
+);
+// quick-implementer.js validator file exists
+assert(
+  fs.existsSync(path.join(__dirname, '..', 'hooks', 'validators', 'quick-implementer.js')),
+  'quick-implementer.js validator exists on disk'
+);
 
 // ============================================================
 // Test 3: hooks.json SubagentStart matcher includes quick-implementer
@@ -118,7 +109,7 @@ try {
   process.exit(1);
 }
 
-const caseMatch = scriptContent.match(/case\s+"\$(?:AGENT_TYPE|1)"\s+in\s*\n([\s\S]*?)\nesac/);
+const caseMatch = scriptContent.match(/case\s+"\$(?:AGENT_TYPE|1)"\s+in\s*\n([\s\S]*?)\n\s*esac/);
 assert(caseMatch !== null, 'case statement for AGENT_TYPE exists');
 
 if (caseMatch) {
@@ -159,18 +150,16 @@ assert(hooks.hooks.Stop !== undefined, 'hooks.json Stop preserved');
 assert(hooks.hooks.PreToolUse !== undefined, 'hooks.json PreToolUse preserved');
 assert(hooks.hooks.SessionEnd !== undefined, 'hooks.json SessionEnd preserved');
 
-// Verify existing SubagentStop entries still exist
+// Verify dispatch.js RULES cover existing agents (matchers live in dispatch.js now).
+const { pickValidator: pv } = require(DISPATCH_PATH);
 const requiredAgentsCoverage = [
   'implementer', 'fixer', 'researcher',
   'bug-detector', 'pattern-reviewer',
   'plan-compliance-reviewer', 'stack-reviewer',
 ];
 for (const agent of requiredAgentsCoverage) {
-  const found = subagentStopEntries.some((e) => {
-    try { return new RegExp(e.matcher).test(agent); } catch { return false; }
-  });
   assert(
-    found,
+    pv(agent) !== null,
     `SubagentStop has matcher covering agent "${agent}"`
   );
 }

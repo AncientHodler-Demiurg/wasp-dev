@@ -5,10 +5,102 @@
 
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 
 const PARSER_PATH = path.join(__dirname, '..', 'hive-state-parser.js');
-const REAL_STATE_MD = path.join(__dirname, '..', '..', '..', '..', '.bee', 'STATE.md');
+
+// ---------------------------------------------------------------------------
+// Fixture .bee tree (Phase 2 triage: these suites previously parsed the LIVE
+// .bee/STATE.md and real spec dirs -- stale-by-construction. The parser
+// behavior contract is unchanged; only the input is now synthetic.)
+// ---------------------------------------------------------------------------
+const os = require('os');
+function buildFixtureBee() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bee-hive-fix-'));
+  const bee = path.join(root, '.bee');
+  const specDir = path.join(bee, 'specs', '2026-04-10-bee-board-dashboard');
+  fs.mkdirSync(specDir, { recursive: true });
+  fs.writeFileSync(path.join(bee, 'STATE.md'), [
+    '# Bee Project State', '',
+    '## Current Spec',
+    '- Name: bee-hive-dashboard',
+    '- Path: .bee/specs/2026-04-10-bee-board-dashboard/',
+    '- Status: IN_PROGRESS', '',
+    '## Phases',
+    '| # | Name | Status | Plan | Plan Review | Executed | Reviewed | Tested | Committed |',
+    '|---|------|--------|------|-------------|----------|----------|--------|-----------|',
+    '| 1 | Server and Data API | REVIEWED | Yes | Yes (1) | Yes | Yes (1) | | |',
+    '| 2 | Lifecycle Management | REVIEWED | Yes | Yes (1) | Yes | Yes (1) | | |',
+    '| 3 | Dashboard SPA | REVIEWED | Yes | Yes (1) | Yes | Yes (1) | | |',
+    '| 4 | Activity Feed and Distribution | REVIEWED | Yes | Yes (1) | Yes | Yes (1) | | |', '',
+    '## Quick Tasks', '',
+    '| # | Description | Date | Commit |',
+    '|---|-------------|------|--------|', '',
+    '## Decisions Log', '',
+    '- **[Plan review auto-fix]:** fixture decision entry.',
+    '- **[Cross-plan review auto-fix]:** fixture decision entry.', '',
+    '## Last Action',
+    '- Command: /bee:test',
+    '- Timestamp: 2026-04-10T00:00:00Z',
+    '- Result: fixture', '',
+  ].join('\n'));
+  fs.writeFileSync(path.join(bee, 'config.json'), JSON.stringify({
+    stacks: [{ name: 'react', path: '.', linter: 'none', testRunner: 'none' }],
+  }, null, 2));
+  fs.writeFileSync(path.join(specDir, 'spec.md'), [
+    '# Specification: bee-hive-dashboard', '',
+    '## Goal',
+    'A Mission Control dashboard that surfaces live bee project state in the browser.', '',
+    '## User Stories',
+    '- As a developer, I want to see phases at a glance',
+    '- As a developer, I want to browse review reports',
+    '- As a developer, I want to see quick tasks',
+    '- As a developer, I want a live activity feed',
+    '- As a developer, I want spec docs rendered', '',
+  ].join('\n'));
+  const phaseNames = ['Server and Data API', 'Lifecycle Management', 'Dashboard SPA', 'Activity Feed and Distribution'];
+  fs.writeFileSync(path.join(specDir, 'phases.md'),
+    '# Phases\n\n' + phaseNames.map((n, i) => [
+      `## Phase ${i + 1}: ${n}`,
+      `**Description:** Delivers ${n.toLowerCase()}.`,
+      '**Deliverables:**', '- deliverable one', '- deliverable two', '- deliverable three',
+      `**Dependencies:** ${i === 0 ? 'None (first phase)' : 'Phase ' + i}`, '',
+    ].join('\n')).join('\n'));
+  fs.writeFileSync(path.join(specDir, 'requirements.md'), [
+    '# Requirements', '',
+    '### Functional Requirements',
+    '- [x] requirement one',
+    '- [ ] requirement two', '',
+    '### Non-Functional Requirements',
+    '- [x] requirement three', '',
+  ].join('\n'));
+  fs.writeFileSync(path.join(specDir, 'ROADMAP.md'), [
+    '# Roadmap', '',
+    '## Phase-Requirement Mapping', '',
+    '| Phase | Goal | Requirements | Success Criteria |',
+    '|-------|------|-------------|------------------|',
+    '| 1. Server and Data API | Serve hive data | REQ-01, REQ-02 | 1. API responds 2. Snapshot complete |',
+    '| 2. Lifecycle Management | Manage lifecycle | REQ-03 | 1. Lifecycle works |',
+    '| 3. Dashboard SPA | Render the SPA | REQ-04 | 1. SPA renders |',
+    '| 4. Activity Feed and Distribution | Live feed | REQ-05 | 1. Feed streams |', '',
+  ].join('\n'));
+  const slugs = ['01-server-and-data-api', '02-lifecycle-management', '03-dashboard-spa', '04-activity-feed-and-distribution'];
+  slugs.forEach((slug, i) => {
+    const d = path.join(specDir, 'phases', slug);
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, 'TASKS.md'), `# Phase ${i + 1}: ${phaseNames[i]} -- Tasks\n\n- [x] T${i + 1}.1 | fixture task | bee-implementer\n`);
+  });
+  fs.mkdirSync(path.join(bee, 'quick'), { recursive: true });
+  fs.writeFileSync(path.join(bee, 'quick', '001-review-quality-rules.md'), [
+    '# Quick Task 1: Add review quality rules', '',
+    '- Date: 2026-03-20',
+    '- Status: EXECUTED', '',
+    'Fixture quick task.', '',
+  ].join('\n'));
+  return bee;
+}
+
+const FIXTURE_BEE = buildFixtureBee();
+const REAL_STATE_MD = path.join(FIXTURE_BEE, 'STATE.md');
 
 let passed = 0;
 let failed = 0;
@@ -115,7 +207,7 @@ assert(
 
 const phase1 = result.phases[0];
 assert(
-  phase1 && phase1.number === '1',
+  phase1 && String(phase1.number) === '1',
   'Phase 1 number is "1"'
 );
 assert(
@@ -153,19 +245,19 @@ assert(
 
 const phase2 = result.phases[1];
 assert(
-  phase2 && phase2.number === '2' && phase2.name === 'Lifecycle Management' && typeof phase2.status === 'string',
+  phase2 && String(phase2.number) === '2' && phase2.name === 'Lifecycle Management' && typeof phase2.status === 'string',
   'Phase 2 extracted correctly'
 );
 
 const phase3 = result.phases[2];
 assert(
-  phase3 && phase3.number === '3' && phase3.name === 'Dashboard SPA' && typeof phase3.status === 'string',
+  phase3 && String(phase3.number) === '3' && phase3.name === 'Dashboard SPA' && typeof phase3.status === 'string',
   'Phase 3 extracted correctly'
 );
 
 const phase4 = result.phases[3];
 assert(
-  phase4 && phase4.number === '4' && phase4.name === 'Activity Feed and Distribution' && typeof phase4.status === 'string',
+  phase4 && String(phase4.number) === '4' && phase4.name === 'Activity Feed and Distribution' && typeof phase4.status === 'string',
   'Phase 4 extracted correctly'
 );
 
@@ -402,14 +494,14 @@ assert(
   'Quick tasks: 2 entries extracted'
 );
 assert(
-  fullResult.quickTasks[0].number === '1' &&
+  String(fullResult.quickTasks[0].number) === '1' &&
     fullResult.quickTasks[0].description === 'Fix login bug' &&
     fullResult.quickTasks[0].date === '2026-03-01' &&
     fullResult.quickTasks[0].commit === 'abc123',
   'Quick task 1 fields extracted correctly'
 );
 assert(
-  fullResult.quickTasks[1].number === '2' &&
+  String(fullResult.quickTasks[1].number) === '2' &&
     fullResult.quickTasks[1].description === 'Update deps' &&
     fullResult.quickTasks[1].date === '2026-03-02' &&
     fullResult.quickTasks[1].commit === 'def456',
@@ -432,6 +524,54 @@ assert(
 );
 
 fs.unlinkSync(fullPath);
+
+// ============================================================
+// Test Group 6: FIX 4 regression — empty single-line field must not
+// cross into the next line and capture it as the field value.
+// An empty "- Timestamp:" followed by "- Result: X" must yield
+// timestamp===null and result==='X' (not timestamp==='- Result: X').
+// ============================================================
+console.log('\nTest Group 6: Empty single-line field does not cross newline (FIX 4)');
+
+const emptyFieldPath = path.join(os.tmpdir(), `empty-field-state-${Date.now()}.md`);
+fs.writeFileSync(
+  emptyFieldPath,
+  '# Bee Project State\n\n' +
+  '## Current Spec\n' +
+  '- Name:\n' +
+  '- Path: .bee/specs/no-spec/\n' +
+  '- Status: NO_SPEC\n\n' +
+  '## Phases\n\n' +
+  '## Last Action\n' +
+  '- Command: /bee:complete-spec\n' +
+  '- Timestamp:\n' +
+  '- Result: spec completed\n'
+);
+
+const emptyFieldResult = parser.parseStateMd(emptyFieldPath);
+
+assert(
+  emptyFieldResult.lastAction.timestamp === null,
+  'FIX4: empty Timestamp field yields null (not the next line)'
+);
+assert(
+  emptyFieldResult.lastAction.result === 'spec completed',
+  'FIX4: Result field after empty Timestamp parses correctly as "spec completed"'
+);
+assert(
+  emptyFieldResult.lastAction.command === '/bee:complete-spec',
+  'FIX4: Command field still parses correctly when Timestamp is empty'
+);
+assert(
+  emptyFieldResult.currentSpec.name === null,
+  'FIX4: empty Name field yields null (not the next line)'
+);
+assert(
+  emptyFieldResult.currentSpec.status === 'NO_SPEC',
+  'FIX4: Status field after empty Name parses correctly'
+);
+
+fs.unlinkSync(emptyFieldPath);
 
 // ============================================================
 // Results

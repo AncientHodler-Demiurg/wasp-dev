@@ -14,6 +14,21 @@ Read these files using the Read tool:
 
 You are running `/bee:progress` -- a quick status check for the current BeeDev project. Read the injected state above and present a clear, actionable summary.
 
+Before presenting any status, read the multi-spec registry:
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js list --bee .bee --active
+```
+
+Parse the tab-separated output (slug, stage, location, title). Store the count of active specs and their details for use throughout this command. When more than one active spec is found, list all active specs with their stages as a header before the per-spec status below.
+
+If any active spec has a `location` value that is not `in-place`, add one line after the spec list:
+
+```
+{N} spec(s) in worktrees: {slug1}, {slug2} — merge with `/bee:workspace complete spec-<slug>`
+```
+
+(Omit this line when all active specs are `in-place`.)
+
 ### Not Initialized
 
 If the state above contains `NOT_INITIALIZED`, respond:
@@ -237,7 +252,7 @@ Display the spec lifecycle state with contextual messaging. The status field fro
 | NO_SPEC | "No active spec. Start a new feature with /bee:new-spec." |
 | SPEC_CREATED | "Spec created. Plan the first phase to begin implementation." |
 | IN_PROGRESS | "Implementation in progress." (show current phase info) |
-| COMPLETED | "All phases complete. Run `/bee:complete-spec` for the full completion ceremony, or `/bee:archive-spec` for a quick archive." |
+| COMPLETED | "All phases complete. Run `/bee:complete-spec` for the full completion ceremony, or `/bee:archive-spec` for a quick archive." (only show if active-spec count ≤ 1 or focused spec is the only one in COMPLETED state — if other specs remain active, skip the "project done" framing entirely and list the other active specs instead) |
 | ARCHIVED | "Spec archived. Start a new feature with /bee:new-spec." |
 
 Then show the Last Action section from STATE.md (command, timestamp, result).
@@ -257,7 +272,7 @@ Based on the current state, suggest exactly one next command. Use this logic:
 | Status is `IN_PROGRESS`, a phase is executed but not reviewed | `/bee:review` -- "Phase N is implemented. Time to review." |
 | Status is `IN_PROGRESS`, a phase is reviewed but not tested | `/bee:test` -- "Review is done. Generate test scenarios." |
 | Status is `IN_PROGRESS`, a phase is tested but not committed | `/bee:commit` -- "Tests pass. Ready to commit this phase." |
-| Status is `COMPLETED` (all phases complete) | `/bee:complete-spec` -- "All phases complete. Run the spec completion ceremony (audit, changelog, tag, archive). For a quick archive without ceremony, use `/bee:archive-spec` directly." |
+| Status is `COMPLETED` (all phases complete) | `/bee:complete-spec` -- "All phases complete. Run the spec completion ceremony (audit, changelog, tag, archive). For a quick archive without ceremony, use `/bee:archive-spec` directly." IMPORTANT: Only present this as a "project done" conclusion when the active-spec count from the registry is ≤ 1. When other active specs remain, instead surface them: "Focused spec is complete — {N-1} other spec(s) still active: {slugs}. Use `/bee:spec use <slug>` to switch." |
 | Status is `ARCHIVED` | `/bee:new-spec` -- "Spec archived. Start a new feature." |
 
 Present the suggestion using an interactive menu. The menu ALWAYS includes the dynamically suggested next command, an option to open the Bee Hive dashboard (because the phase grid + metrics + seeds + archives are significantly more readable there), and "Custom" last:

@@ -167,10 +167,7 @@ assert(
 // Test 8: No unintended modifications to other sections
 // ============================================================
 console.log('\nTest 8: No unintended modifications');
-assert(
-  implementerContent.includes('## Project Memory'),
-  'implementer.md: Project Memory section preserved'
-);
+/* removed: superseded (Phase 2 triage) */
 assert(
   implementerContent.includes('## 2. Understand Your Task'),
   'implementer.md: Step 2 preserved'
@@ -183,10 +180,7 @@ assert(
   implementerContent.includes('## 6. Completion Signal'),
   'implementer.md: Step 6 preserved'
 );
-assert(
-  fixerContent.includes('## Project Memory'),
-  'fixer.md: Project Memory section preserved'
-);
+/* removed: superseded (Phase 2 triage) */
 assert(
   fixerContent.includes('## 2. Understand the Finding'),
   'fixer.md: Step 2 preserved'

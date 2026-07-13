@@ -146,7 +146,122 @@ assert(
 );
 
 // ============================================================
+// PATTERN REVIEWER DEAD-FIELD TESTS
+// ============================================================
+console.log('\n=== Pattern Reviewer Dead-Field Tests ===');
+
+// Test 14: Dead-field detection heading present
+console.log('\nTest 14: Dead-field detection heading');
+assert(
+  patternReviewer.includes('### Write-Only / Dead-Field Detection'),
+  'pattern-reviewer.md contains "### Write-Only / Dead-Field Detection" heading'
+);
+
+// Test 15: Three named dead-data shapes present
+console.log('\nTest 15: Three dead-data shapes named');
+assert(
+  patternReviewer.includes('COMPUTED-THEN-DISCARDED'),
+  'pattern-reviewer.md names the "COMPUTED-THEN-DISCARDED" shape'
+);
+assert(
+  patternReviewer.includes('PERSISTED-BUT-NEVER-READ'),
+  'pattern-reviewer.md names the "PERSISTED-BUT-NEVER-READ" shape'
+);
+assert(
+  patternReviewer.includes('RESERVED-NEVER-FILLED'),
+  'pattern-reviewer.md names the "RESERVED-NEVER-FILLED" shape'
+);
+
+// Test 16: Dual-endpoint [CITED] evidence instruction present
+console.log('\nTest 16: Dual-endpoint citation instruction');
+assert(
+  patternReviewer.includes('dual-endpoint') || patternReviewer.includes('DUAL-ENDPOINT'),
+  'pattern-reviewer.md instructs a dual-endpoint citation trace'
+);
+assert(
+  /grepp?ed for .* and found none/i.test(patternReviewer) ||
+  patternReviewer.includes('found none'),
+  'pattern-reviewer.md requires the absent-endpoint "grepped ... found none" evidence form'
+);
+
+// Test 16b: per-shape endpoint pairing — the load-bearing semantic (TASKS T4.2 acceptance:
+// "the evidence model must generalize, not assume a single write->read pairing"). The most
+// error-prone is RESERVED-NEVER-FILLED, whose absent endpoint is the WRITER, not the reader.
+// A test that only checks the literals "dual-endpoint"/"found none" would stay green if the
+// prose regressed to "absent reader" for all three shapes — so pin the per-shape pairing.
+console.log('\nTest 16b: per-shape WRITER-vs-READER evidence pairing');
+assert(
+  /PERSISTED-BUT-NEVER-READ[\s\S]{0,160}absent READER/i.test(patternReviewer),
+  'pattern-reviewer.md pairs PERSISTED-BUT-NEVER-READ with the absent READER grep'
+);
+assert(
+  /RESERVED-NEVER-FILLED[\s\S]{0,260}absent WRITER/i.test(patternReviewer),
+  'pattern-reviewer.md pairs RESERVED-NEVER-FILLED with the absent WRITER grep (not the reader)'
+);
+
+// Test 16c: string-addressed bag-keys — the dead-field detector must tell the reviewer that a
+// media custom-property / EAV / JSON-bag key is reached by the KEY STRING, so the absent-endpoint
+// grep targets the key string literal, not a symbolic reference. Without this the detector goes
+// inert / false-positive on exactly the ocr_* custom-property case the spec was built to catch.
+console.log('\nTest 16c: string-addressed bag-key grep instruction');
+assert(
+  patternReviewer.includes('KEY STRING') && patternReviewer.includes('getCustomProperty'),
+  'pattern-reviewer.md instructs grepping the KEY STRING literal for string-addressed stores (media custom-properties / EAV)'
+);
+
+// Test 17: Forthcoming-consumer carve-out present
+console.log('\nTest 17: Forthcoming-consumer carve-out');
+assert(
+  (patternReviewer.includes('forthcoming consumer') || patternReviewer.includes('FORTHCOMING-CONSUMER') || patternReviewer.includes('upcoming consumer')) &&
+  patternReviewer.includes('later phase'),
+  'pattern-reviewer.md states the forthcoming-consumer carve-out (skip when a later phase declares an upcoming consumer)'
+);
+
+// Test 18: Dead-field gating + test-file exclusion reused
+console.log('\nTest 18: Dead-field gating and test-file exclusion');
+assert(
+  patternReviewer.includes('persisted or computed state') || patternReviewer.includes('persisted/computed state'),
+  'pattern-reviewer.md gates the dead-field detector on new persisted/computed state to trace'
+);
+assert(
+  /activates NO dead-field findings|SKIP this detector entirely|emit nothing/i.test(patternReviewer),
+  'pattern-reviewer.md pins the SKIP/zero-noise branch (no new persisted/computed state => emit nothing)'
+);
+
+// Test 19: WARNING severity for dead-field findings (regression-adjacent)
+console.log('\nTest 19: Dead-field WARNING severity');
+assert(
+  patternReviewer.includes('### Warning (Dead Fields)'),
+  'pattern-reviewer.md frames dead-field findings as WARNING-level output'
+);
+
+// ============================================================
 // Results
 // ============================================================
+// ============================================================
+// Test 20 (Phase 3): dead-field symbolic branch admits findReferences as the
+// absent-endpoint evidence, gated on config.lsp, with the string-addressed
+// clause explicitly excluded from the branch (LSP cannot see string keys)
+// ============================================================
+console.log('\nTest 20: LSP symbolic branch (Rule 13) in the dead-field detector');
+assert(
+  patternReviewer.includes('SYMBOLIC IDENTIFIERS (Rule 13 branch)') &&
+    patternReviewer.includes('config.lsp'),
+  'Symbolic findReferences branch present and gated on config.lsp availability'
+);
+assert(
+  /findReferences on X: zero references/.test(patternReviewer) &&
+    /findReferences on X returned zero references/.test(patternReviewer),
+  'Zero-result findReferences admitted as dual-endpoint CITED evidence (branch + evidence-form + template)'
+);
+assert(
+  /NEVER use this branch/.test(patternReviewer),
+  'String-addressed keys explicitly excluded from the LSP branch'
+);
+assert(
+  patternReviewer.includes('I grepped for {consumers/writers} of X and found none'),
+  'Grep evidence wording preserved verbatim (string-addressed/fallback standard unchanged)'
+);
+
 console.log(`\nResults: ${passed} passed, ${failed} failed out of ${passed + failed} assertions`);
 process.exit(failed > 0 ? 1 : 0);

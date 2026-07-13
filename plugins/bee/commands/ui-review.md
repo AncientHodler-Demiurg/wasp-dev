@@ -9,7 +9,7 @@ Read these files using the Read tool:
 - `.bee/STATE.md` -- if not found: NOT_INITIALIZED
 - `.bee/config.json` -- if not found: use `{}`
 
-Read `config.implementation_mode` and store as `$IMPLEMENTATION_MODE`. If not set, defaults to `"premium"`. Valid values: `"economy"`, `"quality"`, `"premium"`.
+Read `config.implementation_mode` and store as `$IMPLEMENTATION_MODE`. If not set, defaults to `"premium"`. Valid values: `"economy"`, `"quality"`, `"premium"`, `"max-critical"`, `"max"` (max tiers per `skills/command-primitives/SKILL.md` Model Selection; unrecognized values behave as premium).
 
 ## Instructions
 
@@ -144,7 +144,7 @@ Handle each option:
 - The ui-review command is an ORCHESTRATOR -- it gathers context, spawns the ui-auditor agent, and handles the results. The actual auditing happens in the ui-auditor agent.
 - Bee never auto-fixes. "Fix top issues" suggests `/bee:quick` with fix descriptions. The user runs it manually.
 - All menus use numbered options. Custom is always the last option.
-- Model selection: economy mode uses sonnet (cost reduction), quality/premium inherit parent model.
+- Model selection: economy mode uses sonnet (cost reduction), quality/premium inherit parent model; max-critical behaves as premium; max passes `model: $CRITICAL_MODEL` (Model Selection (Scanning), command-primitives).
 - The command does NOT commit anything. It only reads code and produces UI-REVIEW.md via the agent.
 - SubagentStop hook validates the agent's output structure (see hooks.json).
 - inject-memory.sh registers ui-auditor for user preference injection.

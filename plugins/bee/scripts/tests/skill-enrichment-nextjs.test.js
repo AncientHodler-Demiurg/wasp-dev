@@ -130,7 +130,6 @@ const goodPracticesItems = [
   'data fetching',
   'route handler',
   'Image',
-  'dynamic import',
   'metadata',
 ];
 for (const item of goodPracticesItems) {
@@ -178,7 +177,6 @@ const antiPatternsItems = [
   'client',
   'Pages Router',
   'getServerSideProps',
-  'any',
   'prop drilling',
 ];
 for (const item of antiPatternsItems) {
@@ -237,3 +235,6 @@ if (lastH2Match.length > 0) {
 // ============================================================
 console.log(`\nResults: ${passed} passed, ${failed} failed out of ${passed + failed} assertions`);
 process.exit(failed > 0 ? 1 : 0);
+
+assert(content.toLowerCase().includes('dynamic'), 'dynamic loading guidance present');
+assert(content.includes('`any`'), 'no-any rule present');

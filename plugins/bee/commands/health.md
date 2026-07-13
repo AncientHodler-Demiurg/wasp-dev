@@ -25,7 +25,7 @@ Execute each check in order. For each, record a status (PASS, WARN, or FAIL) and
 - PASS: `.bee/STATE.md` exists and contains expected sections (Current Spec, Phases, Last Action)
 - FAIL: STATE.md missing or unreadable -> recovery: "Run `/bee:init` to initialize"
 
-**If Check 1 FAIL (STATE.md missing):** Auto-PASS Checks 3-6 with message "Cannot evaluate -- STATE.md missing". These checks depend on STATE.md content.
+**If Check 1 FAIL (STATE.md missing):** Auto-PASS Checks 3-6 with message "Cannot evaluate -- STATE.md missing". These checks depend on STATE.md content. Check 3.5 (Multi-spec registry) is independent of STATE.md and can still run.
 
 **Check 2 -- config.json valid:**
 - PASS: `.bee/config.json` exists, parses as valid JSON, and contains a `stacks` array
@@ -35,6 +35,22 @@ Execute each check in order. For each, record a status (PASS, WARN, or FAIL) and
 - Read the spec path from STATE.md Current Spec section (the Path field)
 - PASS: spec path directory exists on disk, OR no active spec (Path is "(none)") -> "No active spec"
 - FAIL: spec path referenced in STATE.md but directory missing -> recovery: "Orphaned spec reference. Update STATE.md or run `/bee:new-spec`"
+
+**Check 3.5 -- Multi-spec registry integrity (if `.bee/specs.json` exists):**
+
+This check is independent of STATE.md and can still run even when Check 1 FAILs.
+
+- If `.bee/specs.json` does NOT exist → **PASS** "Single-spec project (no registry)".
+- Else read the registry via:
+  ```bash
+  node ${CLAUDE_PLUGIN_ROOT}/scripts/specs-cli.js list --bee .bee --json
+  ```
+  - **FAIL** if the command errors or its output is not valid JSON containing a `specs` array → recovery: "Registry corrupted (.bee/specs.json). Restore it or re-register specs."
+  - For each ACTIVE spec (stage not `shipped` or `archived`):
+    - **FAIL** if `.bee/specs/<slug>/STATE.md` is missing → "Spec `<slug>` has no per-spec STATE.md snapshot — switching to it will fail. Check the spec folder."
+    - If `location` != `in-place` (promoted spec): **WARN** if the worktree path does not exist OR has no `.bee/worktree-spec` marker → "Promoted spec `<slug>` points at a missing/stale worktree `<path>`. Run `/bee:workspace complete spec-<slug>` to reconcile."
+  - **WARN** if a non-terminal registry row's `.bee/specs/<slug>/` folder is missing (orphaned) → "Orphaned registry entry `<slug>` (no spec folder)."
+  - Otherwise **PASS**: if 2+ active specs → "N active specs (multi-spec) — statusline shows the last-touched; use `/bee:spec list`."; else "Registry healthy (N active spec(s))."
 
 **Check 4 -- Phase directories match STATE.md:**
 - Compare Phases table entries in STATE.md against actual directories in the spec path
@@ -172,6 +188,7 @@ After completing all 14 checks, write a health history entry. This is the ONE ex
     "state_md": "{PASS|WARN|FAIL}",
     "config_json": "{PASS|WARN|FAIL}",
     "spec_path": "{PASS|WARN|FAIL}",
+    "specs_registry": "{PASS|WARN|FAIL}",
     "phase_dirs": "{PASS|WARN|FAIL}",
     "hung_phases": "{PASS|WARN|FAIL}",
     "tasks_md": "{PASS|WARN|FAIL}",
@@ -221,6 +238,7 @@ After computing baseline, run trend detection:
      - state_md: 'Run `/bee:init` to reinitialize STATE.md'
      - config_json: 'Run `/bee:init` to recreate config'
      - spec_path: 'Check for orphaned spec references in STATE.md'
+     - specs_registry: 'Restore or reconcile the registry: re-register specs via `/bee:spec` or restore .bee/specs.json from git. For promoted worktree drift, run `/bee:workspace complete spec-<slug>`.'
      - phase_dirs: 'Reconcile phase directories with STATE.md'
      - hung_phases: 'Run `/bee:review` on hung phases'
      - tasks_md: 'Run `/bee:plan-phase` for phases missing TASKS.md'
@@ -244,6 +262,7 @@ Project Health: {OVERALL_STATUS}
   [checkmark] STATE.md: {result}
   [checkmark] config.json: {result}
   [checkmark] Spec path: {result}
+  [checkmark] Multi-spec registry: {result}
   [checkmark] Phase dirs: {result}
   [checkmark] Hung phases: {result}
   [checkmark] TASKS.md: {result}

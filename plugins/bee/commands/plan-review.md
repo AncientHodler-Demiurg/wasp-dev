@@ -162,6 +162,8 @@ Spawn all four agents via four Task tool calls in a SINGLE message (parallel exe
 
 **Quality or Premium mode** (default): Omit the model parameter for all agents (they inherit the parent model).
 
+**Max-critical or Max mode**: Pass `model: $CRITICAL_MODEL` (from `config.models.critical`, default `"fable"`) for all four agents — plan-review convergence is a critical review spot under both max tiers (`skills/command-primitives/SKILL.md` Model Selection (Reasoning)). Spawn-failure fallback to inherit + one-time notice per that rule. Any unrecognized mode behaves as premium.
+
 Wait for all four agents to complete.
 
 #### 3.3: Parse findings from each agent
@@ -368,7 +370,7 @@ AskUserQuestion(
 **Design Notes (do not display to user):**
 
 - This command can modify TASKS.md when the user chooses Fix via AskUserQuestion. The auto-fix applies changes from review findings directly, then re-runs the review pipeline to verify. On Approve or CLEAN auto-approve, it writes the Plan Review column in STATE.md using a Read-Modify-Write pattern: read STATE.md, parse the current Plan Review value to extract N, increment, and write "Yes ({N+1})".
-- Four specialized agents (bug-detector, pattern-reviewer, plan-compliance-reviewer, stack-reviewer) review the plan in parallel via four Task tool calls in a single message. Model tier depends on `implementation_mode`: economy mode passes `model: "sonnet"` (structured comparison work, lower cost); quality or premium mode omits model (inherits parent for deeper analysis).
+- Four specialized agents (bug-detector, pattern-reviewer, plan-compliance-reviewer, stack-reviewer) review the plan in parallel via four Task tool calls in a single message. Model tier depends on `implementation_mode`: economy mode passes `model: "sonnet"` (structured comparison work, lower cost); quality or premium mode omits model (inherits parent for deeper analysis); max-critical and max pass `model: $CRITICAL_MODEL` (plan-review convergence is a critical review spot — see Step 3.2).
 - The command (not the agents) writes PLAN-REVIEW.md. Agents report findings in their own output formats; the command normalizes, deduplicates, and writes the unified PLAN-REVIEW.md.
 - The plan-compliance-reviewer operates in "plan review mode" (not code review mode). Its output provides the primary PLAN-REVIEW.md structure (Coverage Matrix, Gaps, Partial Coverage, Spec Drift, Over-Engineering). The other three agents' findings are merged as additional sections (Bug Risk, Pattern Concerns, Stack Best Practice Concerns).
 - Deduplication merges findings from different agents when they reference the same requirement or task AND describe the same underlying issue. The most specific finding (longest description) is kept.

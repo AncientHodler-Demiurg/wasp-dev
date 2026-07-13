@@ -1,8 +1,8 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "wasp-dev",
-  "version": "1.4.4",
-  "description": "WASP (Workspace-Aware Spec-based Publisher) — a fork of bee-dev that ships the upstream bee plugin (vendored unmodified) alongside a wasp plugin layering an audit-to-publish lifecycle (audit-prep, bundle/unify-audit-specs, pollinate) on top — with multi-package and cross-repository cascade publishing landing in subsequent versions.",
+  "version": "1.5.0",
+  "description": "WASP (Workspace-Aware Spec-based Publisher) — a fork of bee-dev that ships the upstream bee and nectar plugins (both vendored unmodified) alongside a wasp plugin layering an audit-to-publish lifecycle (audit-prep, bundle/unify-audit-specs, pollinate, cross-pollinate) on top. A single install gives you spec-driven development (bee), skills-based autonomous delivery (nectar), and workspace-aware cascade publishing (wasp).",
   "owner": {
     "name": "AncientHodler-Demiurg",
     "url": "https://github.com/AncientHodler-Demiurg"
@@ -10,12 +10,22 @@
   "plugins": [
     {
       "name": "bee",
-      "description": "Vendored unmodified from upstream bee-dev 1.9.1 (bee plugin 4.5.1). Spec-driven development workflow with review gates, the Bee Hive local dashboard, and a live agent activity feed powered by Claude Code hooks. All upstream /bee:* commands work exactly as in the original.",
-      "version": "4.5.1",
+      "description": "Vendored unmodified from upstream bee-dev 1.11.0 (bee plugin 4.8.2). Spec-driven development workflow with review gates, the Bee Hive local dashboard, and a live agent activity feed powered by Claude Code hooks — take features from idea to commit and watch tool calls stream in real time. All upstream /bee:* commands work exactly as in the original.",
+      "version": "4.8.2",
       "author": {
         "name": "Beecoded"
       },
       "source": "./plugins/bee",
+      "category": "development"
+    },
+    {
+      "name": "nectar",
+      "description": "Vendored unmodified from upstream bee-dev 1.11.0 (nectar plugin 1.0.0). The essence of spec-driven development distilled into 9 skills and 3 enforcement agents — shape, plan, build, review, honey, debug, audit, capture, orient. No commands, no state machine: plain artifacts in docs/work/ are the only state, discipline is enforced by read-only agents and fresh contexts, and 'drop the honey' delivers a feature end-to-end from a single confirmation.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Beecoded"
+      },
+      "source": "./plugins/nectar",
       "category": "development"
     },
     {

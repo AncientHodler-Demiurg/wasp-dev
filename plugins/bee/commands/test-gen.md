@@ -9,7 +9,7 @@ Read these files using the Read tool:
 - `.bee/STATE.md` -- if not found: NOT_INITIALIZED
 - `.bee/config.json` -- if not found: use `{}`
 
-Read `config.implementation_mode` and store as `$IMPLEMENTATION_MODE`. If not set, defaults to `"premium"`. Valid values: `"economy"`, `"quality"`, `"premium"`.
+Read `config.implementation_mode` and store as `$IMPLEMENTATION_MODE`. If not set, defaults to `"premium"`. Valid values: `"economy"`, `"quality"`, `"premium"`, `"max-critical"`, `"max"` (max tiers per `skills/command-primitives/SKILL.md` Model Selection; unrecognized values behave as premium).
 
 ## Instructions
 

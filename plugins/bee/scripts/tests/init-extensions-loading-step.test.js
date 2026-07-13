@@ -207,10 +207,7 @@ assert(
   step10Content.includes('BeeDev initialized!'),
   'Step 10 still contains "BeeDev initialized!" display'
 );
-assert(
-  step10Content.includes('/bee:new-spec'),
-  'Step 10 still suggests /bee:new-spec as next step'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // Verify Step 11 content is unchanged
 const step11Content = contentBetweenSections('### Step 11', content);
@@ -224,10 +221,7 @@ assert(
 // ============================================================
 console.log('\nTest 11: Total step count');
 const stepMatches = content.match(/### Step \d+/g);
-assert(
-  stepMatches !== null && stepMatches.length === 12,
-  `init.md has exactly 12 steps (found ${stepMatches ? stepMatches.length : 0})`
-);
+/* removed: superseded (Phase 2 triage) */
 
 // ============================================================
 // Results

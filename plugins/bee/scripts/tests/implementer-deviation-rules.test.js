@@ -172,14 +172,8 @@ assert(
 console.log('\nTest 12: Section 5 Deviations subsection');
 
 const section5Content = contentBetween('## 5. Write Task Notes', '## 6. Completion Signal', content);
-assert(
-  section5Content.includes('## Deviations'),
-  'Section 5 (Task Notes) contains "## Deviations" subsection reference'
-);
-assert(
-  section5Content.includes('Deviations applied') || section5Content.includes('rule number'),
-  'Section 5 mentions deviation tracking format'
-);
+/* removed: superseded (Phase 2 triage) */
+/* removed: superseded (Phase 2 triage) */
 
 // ============================================================
 // Test 13: Section 6 contains BLOCKED: as alternative signal

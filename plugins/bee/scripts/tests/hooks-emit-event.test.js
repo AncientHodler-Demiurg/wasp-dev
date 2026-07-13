@@ -443,7 +443,9 @@ try {
 if (hooksJson && hooksJson.hooks) {
   const h = hooksJson.hooks;
 
-  // Helper: does any matcher-group in the given event array invoke emit-event.js with the given kind?
+  // Helper: does any matcher-group in the given event array wire emit-event for the given kind?
+  // Matches both the direct `emit-event.js` and the `emit-event-gate.sh` wrapper (the gate execs
+  // emit-event.js only when a consumer is active — see emit-event-gate.sh).
   function findEmitGroup(eventArr, kind) {
     if (!Array.isArray(eventArr)) return null;
     for (const group of eventArr) {
@@ -453,7 +455,7 @@ if (hooksJson && hooksJson.hooks) {
           entry &&
           entry.type === 'command' &&
           typeof entry.command === 'string' &&
-          entry.command.includes('scripts/hooks/emit-event.js') &&
+          entry.command.includes('scripts/hooks/emit-event') &&
           entry.command.endsWith(' ' + kind)
         ) {
           return { group, entry };
@@ -463,21 +465,11 @@ if (hooksJson && hooksJson.hooks) {
     return null;
   }
 
-  // PreToolUse
+  // PreToolUse — the redundant pre_tool_use emit was DROPPED for speed (the dashboard
+  // already hides pre events: LiveActivityPanel filters ev.kind !== 'pre_tool_use').
   assert(Array.isArray(h.PreToolUse), 'PreToolUse is an array');
   const pre = findEmitGroup(h.PreToolUse, 'pre_tool_use');
-  assert(pre !== null, 'PreToolUse contains an emit-event.js pre_tool_use entry');
-  if (pre) {
-    assert(pre.entry.timeout === 5, 'PreToolUse emit-event entry has timeout: 5');
-    assert(
-      pre.entry.command.includes('${CLAUDE_PLUGIN_ROOT}'),
-      'PreToolUse emit-event entry uses ${CLAUDE_PLUGIN_ROOT}'
-    );
-    assert(
-      pre.group.matcher === undefined,
-      'PreToolUse emit-event group has no matcher (fires on every call)'
-    );
-  }
+  assert(pre === null, 'PreToolUse no longer emits a pre_tool_use event (dropped — dashboard hides pre events)');
 
   // PostToolUse
   const post = findEmitGroup(h.PostToolUse, 'post_tool_use');
@@ -545,10 +537,10 @@ if (hooksJson && hooksJson.hooks) {
     );
   }
 
-  // Count matcher-groups that use type:"command" — Phase 1 v4.5.0 converted all 27 prompt validators
-  // to 24 retained type:"command" Node-script validators (3 removed per REQ-03), then F-BUG-001
-  // added finding-validator.js for the review-pipeline `## Classification` schema → 25 per-agent
-  // matchers + 1 terminal emit-event.js catch-all = 26 total command entries under SubagentStop.
+  // Count matcher-groups that use type:"command" — perf/validator-dispatcher consolidated the
+  // 25 per-agent SubagentStop matchers into a single dispatch.js entry. SubagentStop now has
+  // exactly 2 type:"command" entries: dispatch.js (routes all 25 validators in-process) + the
+  // terminal emit-event-gate.sh catch-all. The 25 matchers live in dispatch.js RULES.
   let commandValidatorCount = 0;
   if (Array.isArray(hooksJson.hooks.SubagentStop)) {
     for (const grp of hooksJson.hooks.SubagentStop) {
@@ -560,8 +552,8 @@ if (hooksJson && hooksJson.hooks) {
     }
   }
   assert(
-    commandValidatorCount === 26,
-    `SubagentStop has exactly 26 type:"command" entries (25 per-agent + 1 catch-all) (found ${commandValidatorCount})`
+    commandValidatorCount === 2,
+    `SubagentStop has exactly 2 type:"command" entries (dispatcher + catch-all) (found ${commandValidatorCount})`
   );
 
   // Specific existing matcher-groups we promised to preserve.

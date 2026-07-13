@@ -268,14 +268,10 @@ If `ok:true`, proceed to Step 3f.3.
 
 After all four agents complete, deduplicate and consolidate their findings.
 
-**Deduplication (apply BEFORE categorization).** Apply the four dedup rules in order (cheapest first). Each rule is layered on top of the previous: a finding pair that already merged under an earlier rule is excluded from later rule evaluation. Record every merge in a `## Consolidation Log` section of REVIEW.md (see template at `skills/core/templates/review-report.md`):
+**Deduplication (apply BEFORE categorization).**
 
-- **Rule 0 — Same file + line range overlap (baseline):** For each pair of findings from different agents, check if they reference the same file AND their line ranges overlap (within 5 lines of each other). If so, merge — keep higher severity, concat categories.
-- **Rule 1 — root-cause signature:** For each remaining pair, merge if ≥80% body text overlap OR identical `Suggested Fix:` snippet. Keep higher severity; concat categories.
-- **Rule 2 — REQ-ID anchor:** For each remaining group, merge findings citing the same requirement (`REQ-NN`, `NFR-NN`, or equivalent anchor) into ONE composite finding that preserves all evidence chains.
-- **Rule 3 — cross-agent same-class consensus:** For each remaining group, if 3+ different agents flagged the same file:line area (within 5 lines) with similar defect-class descriptions, merge into ONE `[CONSENSUS]`-tagged finding with a single fix instruction.
-
-When merges happen, write a `## Consolidation Log` section to REVIEW.md documenting which finding IDs merged into which, which rule triggered the merge, source agents, and preserved evidence chains.
+See `skills/review-pipeline/SKILL.md` Deduplicate and Merge (Rules 0–3).
+Apply the four layered rules in order (cheapest first) and record every merge in a `## Consolidation Log` section of REVIEW.md (template: `skills/core/templates/review-report.md`) — which finding IDs merged into which, which rule triggered, source agents, preserved evidence chains.
 
 Then parse each agent's output:
 
@@ -476,14 +472,10 @@ If `ok:true`, proceed to Step 4d.
 
 **4d. Consolidate cross-plan findings**
 
-**Deduplication (apply BEFORE categorization).** Apply the four dedup rules in order (cheapest first). Each rule is layered on top of the previous: a finding pair that already merged under an earlier rule is excluded from later rule evaluation. Record every merge in a `## Consolidation Log` section of the cross-plan REVIEW artifact (see template at `skills/core/templates/review-report.md`):
+**Deduplication (apply BEFORE categorization).**
 
-- **Rule 0 — Same file + line range overlap (baseline):** For each pair of findings from different agents, check if they reference the same file AND their line ranges overlap (within 5 lines of each other). If so, merge — keep higher severity, concat categories.
-- **Rule 1 — root-cause signature:** For each remaining pair, merge if ≥80% body text overlap OR identical `Suggested Fix:` snippet. Keep higher severity; concat categories.
-- **Rule 2 — REQ-ID anchor:** For each remaining group, merge findings citing the same requirement (`REQ-NN`, `NFR-NN`, or equivalent anchor) into ONE composite finding that preserves all evidence chains.
-- **Rule 3 — cross-agent same-class consensus:** For each remaining group, if 3+ different agents flagged the same file:line area (within 5 lines) with similar defect-class descriptions, merge into ONE `[CONSENSUS]`-tagged finding with a single fix instruction.
-
-When merges happen, write a `## Consolidation Log` section to the cross-plan REVIEW artifact documenting which finding IDs merged into which, which rule triggered the merge, source agents, and preserved evidence chains.
+See `skills/review-pipeline/SKILL.md` Deduplicate and Merge (Rules 0–3).
+Apply the four layered rules in order (cheapest first) and record every merge in a `## Consolidation Log` section of the cross-plan REVIEW artifact (template: `skills/core/templates/review-report.md`) — which finding IDs merged into which, which rule triggered, source agents, preserved evidence chains.
 
 Then parse all three agents' output:
 - **Plan Compliance Reviewer** -> cross-phase integration issues (CI-NNN codes — coverage matrix, scope, drift)

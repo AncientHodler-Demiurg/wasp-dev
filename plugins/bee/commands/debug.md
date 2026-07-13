@@ -9,7 +9,7 @@ Read these files using the Read tool:
 - `.bee/STATE.md` -- if not found: NOT_INITIALIZED
 - `.bee/config.json` -- if not found: use `{}`
 
-Read `config.implementation_mode` and store as `$IMPLEMENTATION_MODE`. If not set, defaults to `"premium"`. Valid values: `"economy"`, `"quality"`, `"premium"`.
+Read `config.implementation_mode` and store as `$IMPLEMENTATION_MODE`. If not set, defaults to `"premium"`. Valid values: `"economy"`, `"quality"`, `"premium"`, `"max-critical"`, `"max"` (max tiers per `skills/command-primitives/SKILL.md` Model Selection; unrecognized values behave as premium).
 
 ## Instructions
 
@@ -513,7 +513,7 @@ After each significant action (session creation, agent completion, session close
 - The debug command is an ORCHESTRATOR -- it gathers symptoms, manages sessions, and handles checkpoints. The actual investigation happens in the debug-investigator agent.
 - Bee never auto-fixes. "Fix now" suggests `/bee:quick` with a fix description. The user runs it manually.
 - All menus use numbered options. Custom is always the last option.
-- Model selection: economy mode uses sonnet (cost reduction), quality/premium inherit parent model
+- Model selection: economy mode uses sonnet (cost reduction), quality/premium inherit parent model; max-critical behaves as premium; max passes `model: $CRITICAL_MODEL` (Model Selection (Scanning), command-primitives)
 - The debug command does NOT commit anything. It only creates/updates files in `.bee/debug/`.
 - Pre-populated sessions from /bee:forensics have `source: forensics` in state.json. The debug command detects this and skips symptom gathering (Step 3) and session creation (Step 4), jumping directly to the debug-investigator agent spawn (Step 5). Users can still choose "Edit symptoms" to modify the pre-populated values.
 - SubagentStop hook validates the agent's output structure (see hooks.json)

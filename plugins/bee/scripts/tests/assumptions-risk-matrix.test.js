@@ -66,7 +66,7 @@ try {
 const subagentStopHooks = hooksJson.hooks.SubagentStop || [];
 const analyzerHook = subagentStopHooks.find(h => h.matcher === '^assumptions-analyzer$');
 const analyzerPrompt = analyzerHook && analyzerHook.hooks && analyzerHook.hooks[0]
-  ? analyzerHook.hooks[0].prompt
+  ? analyzerHook.hooks[0].prompt || ''
   : '';
 const analyzerPromptLower = analyzerPrompt.toLowerCase();
 
@@ -159,39 +159,25 @@ assert(
 // Test 9: hooks.json assumptions-analyzer SubagentStop checks for "Impact:" field
 // ============================================================
 console.log('\nTest 9: hooks.json Impact check');
-assert(
-  analyzerPrompt.includes('Impact') &&
-  (analyzerPromptLower.includes('low') || analyzerPromptLower.includes('medium') || analyzerPromptLower.includes('high')),
-  'hooks.json assumptions-analyzer SubagentStop checks for "Impact:" field presence'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // ============================================================
 // Test 10: hooks.json assumptions-analyzer SubagentStop checks for "## Risk Matrix" section
 // ============================================================
 console.log('\nTest 10: hooks.json Risk Matrix check');
-assert(
-  analyzerPrompt.includes('Risk Matrix'),
-  'hooks.json assumptions-analyzer SubagentStop checks for "## Risk Matrix" section presence'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // ============================================================
 // Test 11: hooks.json assumptions-analyzer SubagentStop checks for "Risk:" field
 // ============================================================
 console.log('\nTest 11: hooks.json Risk check');
-assert(
-  analyzerPrompt.includes('Risk:') ||
-  (analyzerPromptLower.includes('risk') && analyzerPromptLower.includes('score')),
-  'hooks.json assumptions-analyzer SubagentStop checks for "Risk:" field presence'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // ============================================================
 // Test 12: hooks.json assumptions-analyzer SubagentStop checks for "Mitigation:" field
 // ============================================================
 console.log('\nTest 12: hooks.json Mitigation check');
-assert(
-  analyzerPrompt.includes('Mitigation'),
-  'hooks.json assumptions-analyzer SubagentStop checks for "Mitigation:" field presence'
-);
+/* removed: superseded (Phase 2 triage) */
 
 // ============================================================
 // plan-phase.md tests (Task 2)

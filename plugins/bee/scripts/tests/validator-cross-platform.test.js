@@ -49,9 +49,10 @@ const { VALIDATOR_ROSTER } = require('../hooks/validators/validators-lib');
 const VALIDATORS_DIR = path.join(__dirname, '..', 'hooks', 'validators');
 const LIB_FILENAME = 'validators-lib.js';
 // Files that share the validators/ directory but are not per-agent validators:
-// validators-lib.js (Phase 1) + batch-lib.js (Phase 2 — sibling helper for batch validators).
-// Neither belongs in VALIDATOR_ROSTER, so both are excluded from the roster-integrity scan.
-const NON_ROSTER_FILES = new Set(['validators-lib.js', 'batch-lib.js']);
+// validators-lib.js (Phase 1) + batch-lib.js (Phase 2 sibling helper) +
+// dispatch.js (perf/validator-dispatcher in-process routing shim).
+// None of these belong in VALIDATOR_ROSTER.
+const NON_ROSTER_FILES = new Set(['validators-lib.js', 'batch-lib.js', 'dispatch.js']);
 
 let passed = 0;
 let failed = 0;

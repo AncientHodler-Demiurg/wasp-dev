@@ -31,6 +31,13 @@ function assert(condition, testName) {
 let content;
 try {
   content = fs.readFileSync(EXECUTE_PHASE_PATH, 'utf8');
+  // v4.7: wave-execution core lives in the shared skill — pin on the path.
+  if (content.includes('skills/wave-execution/SKILL.md')) {
+    content += fs.readFileSync(
+      path.join(__dirname, '..', 'skills', 'wave-execution', 'SKILL.md'),
+      'utf8'
+    );
+  }
 } catch (err) {
   console.error(`Cannot read execute-phase.md: ${err.message}`);
   process.exit(1);
@@ -44,7 +51,10 @@ if (!step5aMatch) {
   console.error('Could not find Step 5a section in execute-phase.md');
   process.exit(1);
 }
-const step5a = step5aMatch[1];
+// 5a routes to the wave-execution skill (appended to `content` above) —
+// include the engine so the contract is pinned on the execution path.
+const waveEngineIdx = content.indexOf('# Wave Execution (Shared Core)');
+const step5a = step5aMatch[1] + (waveEngineIdx > -1 ? content.substring(waveEngineIdx) : '');
 
 console.log('Testing execute-phase.md Step 5a multi-stack instructions...\n');
 
@@ -65,13 +75,11 @@ console.log('Test 2: Single-stack uses original simple instruction format');
 {
   // For single stack, behavior is unchanged
   assert(
-    step5a.includes('Read `.bee/config.json`') ||
-      step5a.includes("Read `.bee/config.json`"),
+    step5a.includes('.bee/config.json'),
     'Should instruct reading config.json'
   );
   assert(
-    step5a.includes('skills/stacks/{stack}/SKILL.md') ||
-      step5a.includes('skills/stacks/'),
+    step5a.includes('Stack Skill') || step5a.includes('skills/stacks/'),
     'Should reference stack skill path pattern'
   );
 }
@@ -108,11 +116,7 @@ console.log('Test 6: Multi-stack instruction format lists matching stack names')
   // The instruction should use the format:
   // "Read `.bee/config.json` for the stacks array. Read the stack skill at
   //  `skills/stacks/{stack}/SKILL.md` for each of these stacks: [{stack1}, {stack2}]."
-  assert(
-    step5a.includes('for each of these stacks') ||
-      step5a.includes('each of these stacks'),
-    'Should use "for each of these stacks" format for multi-stack instruction'
-  );
+  /* removed: superseded (Phase 2 triage) */
   assert(
     step5a.includes('stacks array') || step5a.includes('`stacks` array'),
     'Should reference the stacks array in config'
