@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.6.0] - 2026-07-14 — wasp → 1.5.0: `/wasp:master-pollinate` (tier-1 cascade)
+
+`wasp` plugin bumped `1.4.4` → `1.5.0`. `bee` (4.8.2) and `nectar` (1.0.0) unchanged (vendored upstream).
+
+### Added
+- **`/wasp:master-pollinate`** — the tier-1 cross-CROSS-pollinate. Cascades publishes ACROSS a suite of workspaces and GitHub orgs, delegating each workspace's cascade to `/wasp:cross-pollinate` (which delegates per-repo to `/wasp:pollinate`). Tracks the cross-workspace dependency edges no single `cross-pollinate.yml` owns; encodes a Pantheonic role rule for deterministic Constructor fan-out; refreshes the overseer (Claudstermind) dashboard graph. Full detail in [`plugins/wasp/CHANGELOG.md`](plugins/wasp/CHANGELOG.md).
+
+### Changed
+- Marketplace version `1.5.0` → `1.6.0`; wasp plugin entry `1.4.4` → `1.5.0`; wasp + marketplace descriptions updated to include the new command.
+
+---
+
 ## [1.5.0] - 2026-07-13 — Upstream sync: bee → 4.8.2 + new vendored nectar plugin
 
 Absorbed upstream `bee-dev` (george-popescu/bee-dev, marketplace 1.11.0) via `git merge upstream/main`. This marketplace now ships **three** plugins: `bee`, `nectar`, and `wasp`. The `wasp` plugin is unchanged at `1.4.4`.

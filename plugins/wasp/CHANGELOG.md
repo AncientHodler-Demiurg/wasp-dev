@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.5.0] - 2026-07-14 — `/wasp:master-pollinate` — the tier-1 cross-CROSS-pollinate
+
+A new top-level command adds the missing top tier of the cascade hierarchy. Where `pollinate` publishes one repo and `cross-pollinate` cascades within one workspace, **`master-pollinate` cascades across a SUITE of workspaces and GitHub organisations**, tracking the cross-workspace dependency edges that no single `cross-pollinate.yml` owns.
+
+### Added
+
+- **`/wasp:master-pollinate`** (`plugins/wasp/commands/master-pollinate.md`) — the tier-1 orchestrator. Full SCAN → MASTER-CLOSE → MASTER-TOPO-SORT → EXECUTE pipeline, mirroring cross-pollinate's shape but one tier up:
+  - **Strict delegation.** Never re-implements publish or intra-workspace cascade — it invokes each workspace's `/wasp:cross-pollinate` (which invokes `/wasp:pollinate` per repo). All three tiers stay independently runnable; fixes to lower tiers are inherited for free.
+  - **Cross-workspace edges** — the only edges master-pollinate owns. Auto-inferred at `--init` by scanning every workspace's member `package.json`s for references to packages published by *other* workspaces. These are exactly the edges each `cross-pollinate.yml` deliberately ignores as "external npm packages."
+  - **Pantheonic role rule** — a generative edge form (`constructors:` + `role_edges: {seer:[pythia], daimon:[pythia,codex], automaton:[pythia,codex,khronoton]}`). A Constructor publish fans out deterministically to every consumer suite-wide, keyed on each repo's role from the overseer graph.
+  - **Peer-range absorption** — cross-edges that are `peerDependencies` with `>=` ranges skip the hop when a bump stays in range (no repin, no downstream publish), so most suite runs touch far fewer packages than the full graph.
+  - **Config** `.wasp/master-pollinate.yml` at the master root (the folder holding all workspaces), with `master.overseer` + `master.graph_mirror` pointing at the overseer repo's dashboard data.
+  - **Overseer integration** — `--sync-dashboard` (and Step 8) refresh the human/visual graph mirror (default `Claudstermind/dashboard/data/map.json`) from live scans; the mirror never drives execution (yml wins).
+  - **State + resume** — `.wasp/master-state.md` (unified wasp state protocol) tracks per-workspace progress; `--resume` re-validates completed workspaces' published versions against the registry and re-enters at the first incomplete workspace.
+  - **`--add-workspace` wizard** — register a new workspace or standalone repo into an existing suite and infer only its cross-edges, without re-inferring the whole graph or triggering publishes.
+  - Flags: `--init`/`--reinit`, `--dry-run` (mandatory first run), `--execute`, `--batch-approve`, `--resume`, `--add-workspace`, `--sync-dashboard`.
+
+### Design rationale
+
+- **The missing tier.** Each workspace's `cross-pollinate.yml` explicitly treats cross-workspace deps as external npm packages — so when `@stoachain/stoa-core` (StoaOuronet) publishes and `@ancientpantheon/codex` (AncientPantheon) peer-deps it, *nothing* tracked the bump. master-pollinate is the only place that edge lives. This was the concrete pain: cross-org bumps carried in the maintainer's head, not by tooling.
+- **Role = dependency rule.** The Pantheonic taxonomy (Seer/Daimon/Automaton) literally encodes which Constructors a repo consumes, which is the cascade edge set. Encoding it generatively means adding a chain or a consumer needs no hand-authored edges.
+- **Master root may be non-git.** The top-level dev folder is often not itself a repo; the config lives there as a plain file while the overseer repo (Claudstermind) is what's version-controlled. The command does not assume `git` works at the master root.
+
+---
+
 ## [1.4.4] - 2026-05-14 — SessionStart banner + `--add-member` wizard
 
 Two quality-of-life additions that surface wasp's existence at session start and make adding a new workspace member a guided wizard instead of a hand-edited checklist.

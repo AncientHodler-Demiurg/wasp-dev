@@ -33,6 +33,7 @@ A separate plugin that adds four new lifecycle commands and never modifies bee:
 | `/wasp:unify-audit-specs` | Consolidate loose files + bundles into a single mega-bundle ready for `/bee:new-spec --from-discussion` |
 | `/wasp:pollinate` | Post-ship publishing pipeline: push, tag, wait for CI, verify on npm, create + backfill GitHub Releases. Multi-package monorepo aware (v1.1.0+) — auto-detects packages, queues only the ones whose code changed, polls each package live with ✅ visuals through publish. |
 | `/wasp:cross-pollinate` | Cross-repository cascade publisher (v1.2.0+) — orchestrates `/wasp:pollinate` across a workspace of linked repos in dep-graph order, with downstream dep-pin updates between hops. |
+| `/wasp:master-pollinate` | Tier-1 cross-CROSS-pollinate (v1.5.0+) — cascades across a SUITE of workspaces and GitHub orgs, tracking the cross-workspace edges no single `cross-pollinate.yml` owns; encodes the Pantheonic role rule for Constructor fan-out; delegates each workspace's cascade to `/wasp:cross-pollinate`. |
 
 - Folder: `plugins/wasp/`
 - See [`plugins/wasp/README.md`](plugins/wasp/README.md) for command-level docs
